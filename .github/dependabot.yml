@@ -13,3 +13,16 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # Rust dependencies (also refreshes Cargo.lock). Every PR runs fmt, clippy,
+  # tests and a non-pushing image build, so a broken bump fails before merge.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+    groups:
+      cargo:
+        patterns:
+          - "*"

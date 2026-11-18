@@ -7,11 +7,20 @@ on:
       - master
     tags:
       - "v*"
+  # PRs build the image too (without pushing), so an action/dependency bump is
+  # validated by a real image build before it can reach main.
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+
+# A newer push to the same branch/PR cancels the previous build. Never cancels
+# a main build that may be mid-push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-push:
@@ -25,7 +34,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # PR runs are build-only: no registry login, no push, no secrets.
       - name: Log in to GitHub Container Registry (ghcr.io)
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -49,7 +60,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
