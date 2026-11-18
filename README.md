@@ -163,3 +163,5 @@ github-radar/
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<!-- test: docs-only change, should not build the image -->
