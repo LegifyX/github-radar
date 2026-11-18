@@ -16,7 +16,6 @@ pub struct AuthUser {
     pub session_expires_at: String,
 }
 
-#[axum::async_trait]
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 

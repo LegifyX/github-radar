@@ -62,25 +62,25 @@ pub fn router(state: AppState) -> Router {
         // Search Queries CRUD
         .route("/api/queries", post(queries::api_create_query))
         .route(
-            "/api/queries/:id",
+            "/api/queries/{id}",
             put(queries::api_update_query).delete(queries::api_delete_query),
         )
         // Repos & Triage
         .route("/api/repos/quick-track", post(repos::api_quick_track))
         .route("/api/repos/ignore-batch", post(repos::api_ignore_batch))
         .route("/api/repos/reorder", post(repos::api_reorder_repos))
-        .route("/api/repos/:id/action", post(repos::api_repo_action))
-        .route("/api/repos/:id/details", get(repos::api_repo_details))
-        .route("/api/repos/:id/mark-read", post(repos::api_repo_mark_read))
+        .route("/api/repos/{id}/action", post(repos::api_repo_action))
+        .route("/api/repos/{id}/details", get(repos::api_repo_details))
+        .route("/api/repos/{id}/mark-read", post(repos::api_repo_mark_read))
         .route(
-            "/api/repos/:id/refresh-readme",
+            "/api/repos/{id}/refresh-readme",
             post(repos::api_repo_refresh_readme),
         )
         .route(
-            "/api/repos/:id/regenerate-ai",
+            "/api/repos/{id}/regenerate-ai",
             post(repos::api_repo_regenerate_ai),
         )
-        .route("/api/repos/:id", delete(repos::api_delete_repo))
+        .route("/api/repos/{id}", delete(repos::api_delete_repo))
         // Settings, Tests & Backup
         .route("/api/settings", put(settings::api_update_settings))
         .route("/api/settings/test-github", post(settings::api_test_github))
@@ -97,7 +97,7 @@ pub fn router(state: AppState) -> Router {
             get(admin::api_admin_list_users).post(admin::api_admin_create_user),
         )
         .route(
-            "/api/admin/users/:id",
+            "/api/admin/users/{id}",
             put(admin::api_admin_update_user).delete(admin::api_admin_delete_user),
         )
         .layer(axum::middleware::from_fn(security_headers))
