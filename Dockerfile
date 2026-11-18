@@ -1,11 +1,11 @@
 # Stage 1: Build the single self-contained Rust binary
-FROM rust:1.85-bookworm AS builder
+FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 
 # Install build dependencies for bundled C libraries (rusqlite / ring)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends pkg-config libssl-dev && \
+    apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy manifest, source, and embedded PWA frontend
@@ -14,7 +14,7 @@ COPY src ./src
 COPY static ./static
 
 # Build release binary
-RUN cargo build --release --verbose
+RUN cargo build --release
 
 # Stage 2: Minimal production runtime image
 FROM debian:bookworm-slim
