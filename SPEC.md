@@ -109,7 +109,7 @@ The four frontend assets live as real files under `static/` and are embedded wit
     * Displays optional **AI Commit Diff Summary** (with lockfiles like `Cargo.lock`, `package-lock.json`, `yarn.lock`, `.min.js`, and `.svg` stripped, and patches truncated to stay within small local LLM context limits).
     * **Mark Read** button clears `unread_count` and sets `is_read = 1`.
   * **Half 2 — Cached Repository `README.md` Viewer:**
-    * Fetches GitHub-rendered, sanitized HTML (`Accept: application/vnd.github.html+json`), rewrites relative `./` and `/` image `src` URLs to `https://raw.githubusercontent.com/{owner}/{repo}/{default_branch}/` and relative `href` links to `https://github.com/{owner}/{repo}/blob/{default_branch}/`, and caches `readme_html` in SQLite for instant (`0ms`) offline viewing. Includes a **↻ Refresh README** button.
+    * Fetches GitHub-rendered, sanitized HTML (`Accept: application/vnd.github.html+json`), rewrites every relative `src`, `srcset` candidate and `href` (with or without a `./` or `/` prefix) to `https://raw.githubusercontent.com/{owner}/{repo}/{default_branch}/` for assets and `https://github.com/{owner}/{repo}/blob/{default_branch}/` for links, leaving absolute URLs, `data:` URIs, protocol-relative URLs and in-page anchors untouched, and caches `readme_html` in SQLite for instant (`0ms`) offline viewing. Includes a **↻ Refresh README** button.
 
 ### 4.3 Tab 3: Ignored (Manual & Retroactive Auto-Expired)
 * **Non-Destructive Retroactive Windowing:**
