@@ -7,9 +7,17 @@ on:
       - master
     tags:
       - "v*"
+    # Docs-only pushes can't change the image. Path filters are not evaluated
+    # for tag pushes, so `v*` releases always build.
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
   # PRs build the image too (without pushing), so an action/dependency bump is
   # validated by a real image build before it can reach main.
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
 
 permissions:
