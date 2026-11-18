@@ -11,6 +11,8 @@ services:
       - DATABASE_PATH=/data/radar.db
       - BIND_ADDR=0.0.0.0:8080
       - RUST_LOG=github_radar=info
+      # Set to 1 when this container sits behind an HTTPS reverse proxy
+      - COOKIE_SECURE=0
     volumes:
       - ./data:/data
     healthcheck:

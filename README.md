@@ -65,6 +65,15 @@ services:
 | `DATABASE_PATH` | `/data/radar.db` | File path for the SQLite database (parent directories are created automatically). |
 | `BIND_ADDR` | `0.0.0.0:8080` | TCP host and port the Axum HTTP server binds to. |
 | `RUST_LOG` | `github_radar=info` | Tracing log verbosity (`error`, `warn`, `info`, `debug`). |
+| `COOKIE_SECURE` | `0` | Set to `1` when TLS terminates in front of the container, so the session cookie is marked `Secure`. Leave `0` for plain-HTTP LAN installs. |
+
+---
+
+## Security Notes
+
+* **Tokens never reach the browser.** The GitHub PAT and the optional AI API key are stored in SQLite and are never serialized into API responses. `/api/state` only returns `github_pat_set` / `github_pat_hint` (e.g. `…a1b2`), and the Configuration form treats an empty field as "keep the stored value". Clearing requires the explicit **Clear** button.
+* **Sessions** are 30-day sliding, `HttpOnly; SameSite=Lax` cookies. Set `COOKIE_SECURE=1` once the app is behind HTTPS.
+* **Password resets revoke sessions.** Resetting a user's password (or disabling/deleting the account) deletes their session rows immediately.
 
 ---
 
@@ -78,22 +87,52 @@ DATABASE_PATH=./data/radar.db cargo run
 cargo build --release
 ```
 
+> **Windows note:** MSVC's `-Brepro` flag breaks when the object-file path contains spaces (`C:\...\AI Playground\...`), producing `cl : Command line error D8050`. If your checkout path has a space, point the target directory somewhere space-free:
+>
+> ```powershell
+> $env:CARGO_TARGET_DIR = "C:\cargo-targets\github-radar"; cargo build
+> ```
+
 ---
 
 ## Project Structure
 
 ```text
 github-radar/
-├── .github/
-│   └── workflows/
-│       └── docker.yml      # Multi-stage Buildx CI/CD to ghcr.io
+├── .github/workflows/docker.yml  # Buildx CI/CD → ghcr.io
 ├── src/
-│   └── main.rs             # Axum server, SQLite migrations, scheduler, GitHub & /v1 AI clients
+│   ├── main.rs                   # Env config, AppState wiring, scheduler spawn, serve, shutdown
+│   ├── state.rs                  # AppState (DB handle, HTTP clients, scan guard, cookie policy)
+│   ├── error.rs                  # AppError → JSON error responses, SQLite error mapping
+│   ├── models.rs                 # UserSettings / SearchQuery / RepoRecord / CommitRecord
+│   ├── auth.rs                   # AuthUser extractor (session cookie → user)
+│   ├── api/
+│   │   ├── mod.rs                # The complete route table
+│   │   ├── assets.rs             # Embedded index.html / manifest / service worker / icon
+│   │   ├── auth.rs               # Setup, login, logout, status
+│   │   ├── state.rs              # GET /api/state, POST /api/scan/force
+│   │   ├── queries.rs            # Search-rule CRUD
+│   │   ├── repos.rs              # Quick-track, triage, reorder, details, README, AI, delete
+│   │   ├── settings.rs           # Settings + GitHub/webhook/AI test endpoints
+│   │   ├── backup.rs             # JSON export / import
+│   │   └── admin.rs              # User management
+│   ├── db/mod.rs                 # Schema creation, boot recovery sweep, settings access
+│   ├── scanner/
+│   │   ├── mod.rs                # Scan trigger/lock, daily maintenance
+│   │   ├── discoveries.rs        # Search-rule execution, dedupe, discovery webhooks
+│   │   └── tracked.rs            # Multi-branch commit sync, rename/404 detection, tracked webhooks
+│   └── integrations/
+│       ├── github.rs             # Slug parsing, rate-limit capture, README sanitizing/rewrite
+│       ├── ai.rs                 # OpenAI-compatible /v1 client + README/diff summaries
+│       └── webhook.rs            # Discord / Slack / generic payload rendering
 ├── static/
-│   └── index.html          # Embedded single-file responsive web & mobile PWA frontend
-├── Cargo.toml              # Rust dependencies and release LTO profile
-├── Dockerfile              # Multi-stage build (rust:1-bookworm -> debian:bookworm-slim)
-├── compose.yaml            # Docker Compose / Dockge stack definition
-├── spec.md                 # Full architectural and product specification
-└── README.md               # Project documentation
+│   ├── index.html                # Single-file responsive web & mobile PWA frontend
+│   ├── manifest.json             # PWA manifest (embedded at compile time)
+│   ├── sw.js                     # Service worker (embedded at compile time)
+│   └── icon.svg                  # App icon (embedded at compile time)
+├── Cargo.toml / Cargo.lock       # Pinned dependencies and release LTO profile
+├── Dockerfile                    # Multi-stage build (rust:1-bookworm → debian:bookworm-slim)
+├── compose.yaml                  # Docker Compose / Dockge stack definition
+├── SPEC.md                       # Full architectural and product specification
+└── README.md                     # Project documentation
 ```

@@ -1,0 +1,9 @@
+# Build artifacts and runtime data never belong in the build context.
+target/
+data/
+*.db
+*.db-wal
+*.db-shm
+.git/
+.github/
+github-radar-review.md

@@ -1,0 +1,17 @@
+{
+  "name": "GitHub Radar",
+  "short_name": "GH Radar",
+  "description": "Self-hosted GitHub repository discovery and multi-branch commit tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#161b22",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

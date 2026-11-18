@@ -766,8 +766,9 @@
               <span id="cfg-rate-badge" class="badge">Rate Limit: Unknown</span>
             </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <input type="password" id="cfg-pat" placeholder="ghp_... or github_pat_..." style="flex:1; min-width:240px;" />
+              <input type="password" id="cfg-pat" placeholder="ghp_... or github_pat_..." autocomplete="off" style="flex:1; min-width:240px;" />
               <button onclick="testGithubPat()">Test Token & Rate Limit</button>
+              <button class="btn-sm btn-danger" onclick="clearStoredPat()" title="Remove the stored token on save">Clear</button>
             </div>
             <details style="background:var(--bg-canvas); padding:10px 12px; border-radius:6px; border:1px solid var(--border); font-size:12.5px;">
               <summary style="cursor:pointer; font-weight:600; color:var(--accent-blue);">📖 Step-by-Step Guide: Creating a Minimal Read-Only GitHub PAT</summary>
@@ -847,7 +848,8 @@
               </div>
               <div>
                 <label>API Key (Optional for Local LLMs)</label>
-                <input type="password" id="cfg-ai-key" placeholder="sk-..." />
+                <input type="password" id="cfg-ai-key" placeholder="sk-..." autocomplete="off" />
+                <button class="btn-sm btn-danger" onclick="clearStoredAiKey()" style="margin-top:6px;" title="Remove the stored key on save">Clear stored key</button>
               </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;">
@@ -1056,7 +1058,7 @@
       }
 
       document.getElementById('pat-warning-banner').style.display =
-        (!APP.settings.github_pat || APP.settings.github_pat.trim() === '') ? 'flex' : 'none';
+        APP.settings.github_pat_set ? 'none' : 'flex';
     }
 
     // Live 1-second countdown ticker
@@ -1511,7 +1513,13 @@
       document.getElementById('cfg-username').textContent = APP.user.username + (APP.user.is_admin ? ' (Admin)' : '');
       document.getElementById('cfg-session-exp').textContent = new Date(APP.user.session_expires_at).toLocaleDateString();
 
-      document.getElementById('cfg-pat').value = APP.settings.github_pat || '';
+      const patEl = document.getElementById('cfg-pat');
+      patEl.value = '';
+      patEl.disabled = false;
+      patEl.placeholder = APP.settings.github_pat_set
+        ? `Saved (${APP.settings.github_pat_hint}) — leave blank to keep`
+        : 'ghp_... or github_pat_...';
+      APP.clearGithubPat = false;
       document.getElementById('cfg-freq').value = APP.settings.refresh_frequency_minutes;
       document.getElementById('cfg-auto-ignore').value = APP.settings.auto_ignore_days;
       document.getElementById('cfg-max-results').value = APP.settings.max_results_per_query;
@@ -1522,7 +1530,13 @@
       document.getElementById('cfg-ai-enabled').checked = APP.settings.ai_enabled;
       document.getElementById('cfg-ai-url').value = APP.settings.ai_base_url || '';
       document.getElementById('cfg-ai-model').value = APP.settings.ai_model || '';
-      document.getElementById('cfg-ai-key').value = APP.settings.ai_api_key || '';
+      const keyEl = document.getElementById('cfg-ai-key');
+      keyEl.value = '';
+      keyEl.disabled = false;
+      keyEl.placeholder = APP.settings.ai_api_key_set
+        ? `Saved (${APP.settings.ai_api_key_hint}) — leave blank to keep`
+        : 'sk-...';
+      APP.clearAiKey = false;
       document.getElementById('cfg-ai-readme').checked = APP.settings.ai_summarize_readme;
       document.getElementById('cfg-ai-commits').checked = APP.settings.ai_summarize_commits;
 
@@ -1534,6 +1548,22 @@
       document.getElementById('admin-panel').style.display = APP.user.is_admin ? 'flex' : 'none';
     }
 
+    function clearStoredPat() {
+      APP.clearGithubPat = true;
+      const el = document.getElementById('cfg-pat');
+      el.value = '';
+      el.disabled = true;
+      el.placeholder = 'Will be removed when you save';
+    }
+
+    function clearStoredAiKey() {
+      APP.clearAiKey = true;
+      const el = document.getElementById('cfg-ai-key');
+      el.value = '';
+      el.disabled = true;
+      el.placeholder = 'Will be removed when you save';
+    }
+
     function syncWebhooks() {
       document.getElementById('cfg-track-webhook').value = document.getElementById('cfg-disc-webhook').value;
       showToast('Copied Discovery Webhook URL to Tracked Webhook URL');
@@ -1541,7 +1571,6 @@
 
     async function saveAllSettings() {
       const payload = {
-        github_pat: document.getElementById('cfg-pat').value,
         refresh_frequency_minutes: parseInt(document.getElementById('cfg-freq').value || '30', 10),
         auto_ignore_days: parseInt(document.getElementById('cfg-auto-ignore').value || '7', 10),
         max_results_per_query: parseInt(document.getElementById('cfg-max-results').value || '15', 10),
@@ -1552,10 +1581,15 @@
         ai_enabled: document.getElementById('cfg-ai-enabled').checked,
         ai_base_url: document.getElementById('cfg-ai-url').value,
         ai_model: document.getElementById('cfg-ai-model').value,
-        ai_api_key: document.getElementById('cfg-ai-key').value,
         ai_summarize_readme: document.getElementById('cfg-ai-readme').checked,
         ai_summarize_commits: document.getElementById('cfg-ai-commits').checked
       };
+      const pat = document.getElementById('cfg-pat').value.trim();
+      if (pat) payload.github_pat = pat;
+      if (APP.clearGithubPat) payload.clear_github_pat = true;
+      const aiKey = document.getElementById('cfg-ai-key').value.trim();
+      if (aiKey) payload.ai_api_key = aiKey;
+      if (APP.clearAiKey) payload.clear_ai_api_key = true;
       try {
         await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
         showToast('Configuration saved! Retroactive window & timer updated.');
