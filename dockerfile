@@ -3,20 +3,18 @@ FROM rust:1.85-bookworm AS builder
 
 WORKDIR /app
 
-# Cache dependencies first
-COPY Cargo.toml ./
-RUN mkdir src static && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "" > static/index.html && \
-    cargo build --release && \
-    rm -rf src static
+# Install build dependencies for bundled C libraries (rusqlite / ring)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy actual source and embedded PWA frontend
+# Copy manifest, source, and embedded PWA frontend
+COPY Cargo.toml ./
 COPY src ./src
 COPY static ./static
 
-# Touch main.rs so Cargo rebuilds with embedded static/index.html
-RUN touch src/main.rs && cargo build --release
+# Build release binary
+RUN cargo build --release
 
 # Stage 2: Minimal production runtime image
 FROM debian:bookworm-slim
