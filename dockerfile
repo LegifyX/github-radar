@@ -14,7 +14,7 @@ COPY src ./src
 COPY static ./static
 
 # Build release binary
-RUN cargo build --release
+RUN cargo build --release --verbose
 
 # Stage 2: Minimal production runtime image
 FROM debian:bookworm-slim
