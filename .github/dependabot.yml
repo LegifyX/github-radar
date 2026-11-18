@@ -1,0 +1,15 @@
+version: 2
+
+updates:
+  # Keep GitHub Actions current: these are Node-based, so stale majors mean
+  # running on a deprecated (and eventually unsupported) Node runtime.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
