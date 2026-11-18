@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#161b22" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <title>GitHub Radar</title>
+  <style>
+    :root {
+      --bg-canvas: #0d1117;
+      --bg-surface: #161b22;
+      --bg-elevated: #1f242c;
+      --bg-ai: #1e1b4b;
+      --border-ai: #3730a3;
+      --text-ai: #c7d2fe;
+      --border: #30363d;
+      --text-main: #e6edf3;
+      --text-muted: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-green: #238636;
+      --accent-green-hover: #2ea043;
+      --accent-amber: #d29922;
+      --accent-red: #f85149;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100dvh;
+      background: var(--bg-canvas);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Prevent iOS Safari zoom on input focus */
+    input, select, textarea, button {
+      font-family: inherit;
+      font-size: 16px;
+      color: var(--text-main);
+    }
+    @media (min-width: 768px) {
+      input, select, textarea, button { font-size: 13.5px; }
+    }
+
+    input, select, textarea {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent-blue); }
+
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      padding: 7px 12px;
+      border-radius: 6px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    button:hover:not(:disabled) { border-color: var(--text-muted); background: #282e37; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent-green); border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-green-hover); }
+    .btn-blue { background: #1f6feb; border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-danger { color: var(--accent-red); border-color: rgba(248,81,73,0.4); }
+    .btn-danger:hover:not(:disabled) { background: rgba(248,81,73,0.15); }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+
+    /* Auth Modal Screen */
+    .auth-screen {
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .auth-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 400px;
+      padding: 28px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    }
+
+    /* App Shell */
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      width: 100vw;
+    }
+
+    /* Top Header */
+    .top-header {
+      height: 56px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      flex-shrink: 0;
+      gap: 10px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      white-space: nowrap;
+    }
+    .brand svg { width: 26px; height: 26px; flex-shrink: 0; }
+
+    .desktop-tabs {
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    @media (min-width: 768px) {
+      .desktop-tabs { display: flex; }
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .tab-btn.active {
+      color: var(--text-main);
+      background: var(--bg-elevated);
+      box-shadow: inset 0 -2px 0 var(--accent-blue);
+    }
+    .badge {
+      background: #30363d;
+      color: var(--text-main);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+    }
+    .badge-unread { background: #1f6feb; color: #fff; }
+    .badge-warn { background: rgba(210,153,34,0.2); color: #e3b341; border: 1px solid rgba(210,153,34,0.4); }
+    .badge-danger { background: rgba(248,81,73,0.2); color: #ff7b72; border: 1px solid rgba(248,81,73,0.4); }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .countdown-pill {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #3fb950;
+    }
+    .pulse-dot.scanning {
+      background: var(--accent-amber);
+      animation: pulse 0.9s infinite alternate;
+    }
+    @keyframes pulse { from { opacity: 0.3; } to { opacity: 1; } }
+
+    @media (max-width: 767px) {
+      .hide-mobile { display: none !important; }
+      .brand-title { font-size: 14px; }
+    }
+
+    /* Warning Banner */
+    .pat-banner {
+      background: rgba(210,153,34,0.15);
+      border-bottom: 1px solid rgba(210,153,34,0.4);
+      color: #e3b341;
+      padding: 6px 14px;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Main Workspace */
+    .workspace {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      position: relative;
+    }
+    .tab-pane {
+      display: none;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    .tab-pane.active { display: flex; }
+
+    /* Split 2-Column Layout (Tab 1 & Tab 2) */
+    .split-layout {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    .sidebar-col {
+      width: 340px;
+      border-right: 1px solid var(--border);
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      flex-shrink: 0;
+    }
+    .main-col {
+      flex: 1;
+      height: 100%;
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--bg-canvas);
+    }
+
+    @media (max-width: 767px) {
+      .split-layout.discoveries-split {
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      .split-layout.discoveries-split .sidebar-col {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      .split-layout.discoveries-split .main-col {
+        overflow-y: visible;
+        height: auto;
+      }
+      /* Mobile Slide-over for Tab 2 Tracked */
+      .split-layout.tracked-split .sidebar-col { width: 100%; }
+      .split-layout.tracked-split .main-col {
+        display: none;
+        width: 100%;
+        padding: 12px;
+      }
+      .split-layout.tracked-split.mobile-detail-open .sidebar-col { display: none; }
+      .split-layout.tracked-split.mobile-detail-open .main-col { display: block; }
+    }
+
+    /* Cards & Lists */
+    .repo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 14px;
+    }
+    @media (max-width: 767px) {
+      .repo-grid { grid-template-columns: 1fr; }
+    }
+    .repo-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    .repo-card.removing {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    .repo-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .repo-name {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--accent-blue);
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .repo-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .topic-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .topic-pill {
+      background: rgba(56,139,253,0.12);
+      color: #58a6ff;
+      border: 1px solid rgba(56,139,253,0.3);
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+    }
+    .query-badge {
+      background: #21262d;
+      color: #d2a8ff;
+      border: 1px solid #30363d;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+    }
+    .ai-box {
+      background: var(--bg-ai);
+      border: 1px solid var(--border-ai);
+      color: var(--text-ai);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .ai-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #a5b4fc;
+      margin-bottom: 4px;
+    }
+
+    /* Watchlist Items (Tab 2 Left Column) */
+    .watchlist-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .watchlist-item:hover { background: var(--bg-elevated); }
+    .watchlist-item.active {
+      background: var(--bg-elevated);
+      border-left: 3px solid var(--accent-blue);
+    }
+
+    /* Commit Timeline & README Viewer (Tab 2 Right Column) */
+    .detail-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      height: calc(100% - 60px);
+    }
+    @media (max-width: 1100px) {
+      .detail-split { grid-template-columns: 1fr; height: auto; }
+    }
+    .detail-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-height: 76dvh;
+    }
+    .detail-panel-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-elevated);
+    }
+    .detail-panel-body {
+      padding: 14px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .commit-row {
+      border-left: 2px solid var(--border);
+      padding-left: 12px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .commit-row.unread { border-left-color: var(--accent-blue); }
+    .branch-pill {
+      background: rgba(63,185,80,0.15);
+      color: #3fb950;
+      border: 1px solid rgba(63,185,80,0.35);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 5px;
+    }
+
+    .readme-content {
+      line-height: 1.6;
+      font-size: 13.5px;
+      word-break: break-word;
+    }
+    .readme-content img { max-width: 100%; height: auto; border-radius: 6px; }
+    .readme-content pre {
+      background: var(--bg-canvas);
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      margin: 8px 0;
+    }
+    .readme-content a { color: var(--accent-blue); }
+    .readme-content h1, .readme-content h2, .readme-content h3 {
+      margin: 14px 0 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+    }
+
+    /* Config Grid */
+    .config-container {
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .config-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+
+    /* Sticky Bottom Mobile Navigation */
+    .mobile-bottom-nav {
+      display: flex;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
+      padding-bottom: env(safe-area-inset-bottom);
+      flex-shrink: 0;
+    }
+    @media (min-width: 768px) {
+      .mobile-bottom-nav { display: none; }
+    }
+    .mobile-nav-item {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 10px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-radius: 0;
+    }
+    .mobile-nav-item.active {
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: calc(70px + env(safe-area-inset-bottom));
+      right: 16px;
+      background: #1f6feb;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      display: none;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- AUTHENTICATION / INITIAL ADMIN BOOTSTRAP SCREEN -->
+  <div id="auth-screen" class="auth-screen" style="display:none;">
+    <div class="auth-card">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+        <img src="/icon.svg" alt="Radar" width="36" height="36" />
+        <div>
+          <h2 id="auth-title" style="font-size:18px;">GitHub Radar</h2>
+          <p id="auth-subtitle" style="font-size:12px; color:var(--text-muted);">Sign in to your account</p>
+        </div>
+      </div>
+      <div id="auth-error" style="display:none; margin-bottom:12px; padding:8px 10px; border-radius:6px;" class="badge-danger"></div>
+      <form id="auth-form" onsubmit="submitAuth(event)" style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label>Username</label>
+          <input type="text" id="auth-username" required autocomplete="username" />
+        </div>
+        <div>
+          <label>Password (min 6 chars)</label>
+          <input type="password" id="auth-password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" id="auth-submit-btn" class="btn-primary" style="margin-top:6px; padding:10px;">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MAIN APPLICATION SHELL -->
+  <div id="app-shell" class="app-shell" style="display:none;">
+    <header class="top-header">
+      <div class="brand">
+        <img src="/icon.svg" alt="Radar" width="26" height="26" />
+        <span class="brand-title">GitHub Radar</span>
+      </div>
+
+      <nav class="desktop-tabs">
+        <button class="tab-btn active" onclick="switchTab('discoveries')" id="dtab-discoveries">
+          Discoveries <span class="badge" id="badge-discoveries">0</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('tracked')" id="dtab-tracked">
+          Tracked <span class="badge" id="badge-tracked">0</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('ignored')" id="dtab-ignored">
+          Ignored <span class="badge" id="badge-ignored">0</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('config')" id="dtab-config">
+          Configuration
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <div class="countdown-pill" title="Background scanner timer">
+          <span id="scan-dot" class="pulse-dot"></span>
+          <span class="hide-mobile">Next refresh in</span>
+          <span id="countdown-text">--m --s</span>
+        </div>
+        <button class="btn-primary btn-sm" id="force-refresh-btn" onclick="forceRefresh()">
+          ↻ <span class="hide-mobile">Force Refresh</span>
+        </button>
+      </div>
+    </header>
+
+    <div id="pat-warning-banner" class="pat-banner" style="display:none;" onclick="switchTab('config')">
+      <span>⚠️ <strong>No GitHub PAT configured</strong> — Using low unauthenticated rate limits (10 req/min). Click here to add a token in Configuration.</span>
+      <span>Configure →</span>
+    </div>
+
+    <main class="workspace">
+      <!-- TAB 1: DISCOVERIES -->
+      <section id="pane-discoveries" class="tab-pane active">
+        <div class="split-layout discoveries-split">
+          <aside class="sidebar-col">
+            <div style="padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+              <strong>Search Rules</strong>
+              <button class="btn-sm" onclick="toggleMobileRulesDrawer()">Toggle Form</button>
+            </div>
+            <div id="rules-drawer" style="padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <input type="hidden" id="edit-query-id" value="" />
+              <div>
+                <label>GitHub Search Syntax</label>
+                <input type="text" id="q-text" placeholder="topic:ai-agent language:rust" />
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div>
+                  <label>Min Stars Floor</label>
+                  <input type="number" id="q-stars" value="0" min="0" />
+                </div>
+                <div>
+                  <label>1st Run Lookback (d)</label>
+                  <input type="number" id="q-lookback" value="7" min="1" max="365" />
+                </div>
+              </div>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:4px;">
+                <input type="checkbox" id="q-webhook" checked style="width:auto;" />
+                Notify Discovery Webhook
+              </label>
+              <div style="display:flex; gap:6px;">
+                <button class="btn-primary" style="flex:1;" onclick="saveSearchQuery()" id="save-query-btn">+ Save Rule</button>
+                <button class="btn-sm" id="cancel-edit-btn" style="display:none;" onclick="resetQueryForm()">Cancel</button>
+              </div>
+            </div>
+            <div id="queries-list" style="flex:1; overflow-y:auto;"></div>
+          </aside>
+
+          <div class="main-col">
+            <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; margin-bottom:14px;">
+              <div style="display:flex; gap:8px; align-items:center; flex:1; min-width:220px;">
+                <input type="text" id="discoveries-filter" placeholder="Filter discoveries by name, topic, rule, summary..." oninput="renderDiscoveries()" />
+              </div>
+              <button class="btn-danger btn-sm" onclick="ignoreAllVisible()">✕ Ignore All Visible</button>
+            </div>
+            <div id="discoveries-feed" class="repo-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: TRACKED -->
+      <section id="pane-tracked" class="tab-pane">
+        <div class="split-layout tracked-split" id="tracked-split-container">
+          <aside class="sidebar-col">
+            <div style="padding:12px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; gap:6px;">
+                <input type="text" id="quick-track-input" placeholder="Quick-Track owner/repo or GitHub URL..." onkeydown="if(event.key==='Enter') quickTrackRepo()" />
+                <button class="btn-primary btn-sm" onclick="quickTrackRepo()">+ Track</button>
+              </div>
+              <input type="text" id="tracked-search" placeholder="Search watchlist, tags, commits..." oninput="renderTrackedList()" />
+              <div style="display:flex; gap:6px; align-items:center; justify-content:space-between;">
+                <select id="tracked-sort" onchange="renderTrackedList()" style="padding:5px 8px; width:auto; flex:1;">
+                  <option value="custom">Sort: Custom Order</option>
+                  <option value="activity">Sort: Recent Activity</option>
+                  <option value="stars">Sort: Stars</option>
+                </select>
+                <label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; white-space:nowrap;">
+                  <input type="checkbox" id="tracked-unread-only" onchange="renderTrackedList()" style="width:auto;" />
+                  Unread Only
+                </label>
+              </div>
+            </div>
+            <div id="tracked-watchlist" style="flex:1; overflow-y:auto;"></div>
+          </aside>
+
+          <div class="main-col" id="tracked-detail-pane">
+            <div id="tracked-empty-state" style="height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
+              Select a tracked repository from the left watchlist to inspect multi-branch commits and README.
+            </div>
+            <div id="tracked-detail-content" style="display:none; height:100%;">
+              <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--border);">
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <button class="btn-sm" onclick="closeMobileTrackedDetail()">← Back</button>
+                  <a id="detail-repo-link" href="#" target="_blank" rel="noopener" class="repo-name" style="font-size:18px;"></a>
+                  <span id="detail-status-badges"></span>
+                </div>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <button class="btn-sm" onclick="switchMobileDetailSubtab('commits')" id="subtab-commits-btn">Commits</button>
+                  <button class="btn-sm" onclick="switchMobileDetailSubtab('readme')" id="subtab-readme-btn">README</button>
+                  <button class="btn-sm" onclick="regenerateCurrentRepoAi()">✨ Regenerate AI</button>
+                  <button class="btn-primary btn-sm" onclick="markCurrentRepoRead()">✓ Mark Read</button>
+                </div>
+              </div>
+
+              <div class="detail-split">
+                <!-- Half 1: Multi-Branch Commits + AI Diff Summary -->
+                <div class="detail-panel" id="detail-panel-commits">
+                  <div class="detail-panel-header">
+                    <span>Multi-Branch Commit Timeline</span>
+                    <span id="detail-commit-count" class="badge">0</span>
+                  </div>
+                  <div class="detail-panel-body">
+                    <div id="detail-ai-diff-box" class="ai-box" style="margin-bottom:14px; display:none;">
+                      <div class="ai-box-header">
+                        <span>✨ AI Commit Diff Summary</span>
+                        <span id="detail-ai-status"></span>
+                      </div>
+                      <div id="detail-ai-diff-text" style="white-space:pre-line;"></div>
+                    </div>
+                    <div id="detail-commits-list"></div>
+                  </div>
+                </div>
+
+                <!-- Half 2: Cached & Sanitized README Viewer -->
+                <div class="detail-panel" id="detail-panel-readme">
+                  <div class="detail-panel-header">
+                    <span>Repository README.md</span>
+                    <button class="btn-sm" onclick="refreshCurrentRepoReadme()">↻ Refresh README</button>
+                  </div>
+                  <div class="detail-panel-body readme-content" id="detail-readme-body"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: IGNORED (MANUAL & RETROACTIVE AUTO-EXPIRED) -->
+      <section id="pane-ignored" class="tab-pane">
+        <div class="main-col">
+          <div style="max-width:1100px; margin:0 auto;">
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px;">
+              <div>
+                <h3>Ignored & Retroactively Expired Repositories</h3>
+                <p style="font-size:12px; color:var(--text-muted);">
+                  Increasing "Retroactive Auto-Ignore Window" in Configuration immediately restores auto-expired discoveries back to Tab 1.
+                </p>
+              </div>
+              <input type="text" id="ignored-search" placeholder="Search ignored repos..." oninput="renderIgnored()" style="max-width:300px;" />
+            </div>
+            <div id="ignored-feed" class="repo-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: CONFIGURATION & ADMIN PANEL -->
+      <section id="pane-config" class="tab-pane">
+        <div class="config-container">
+          <!-- Session & Account Bar -->
+          <div class="config-card" style="flex-direction:row; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+            <div>
+              <strong>Logged in as: <span id="cfg-username" style="color:var(--accent-blue);"></span></strong>
+              <div style="font-size:12px; color:var(--text-muted);">
+                🟢 30-Day Persistent Session Active (Expires: <span id="cfg-session-exp"></span>)
+              </div>
+            </div>
+            <button class="btn-danger btn-sm" onclick="logout()">Sign Out</button>
+          </div>
+
+          <!-- GitHub PAT & Setup Guide -->
+          <div class="config-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <h3>1. GitHub Personal Access Token (PAT)</h3>
+              <span id="cfg-rate-badge" class="badge">Rate Limit: Unknown</span>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <input type="password" id="cfg-pat" placeholder="ghp_... or github_pat_..." style="flex:1; min-width:240px;" />
+              <button onclick="testGithubPat()">Test Token & Rate Limit</button>
+            </div>
+            <details style="background:var(--bg-canvas); padding:10px 12px; border-radius:6px; border:1px solid var(--border); font-size:12.5px;">
+              <summary style="cursor:pointer; font-weight:600; color:var(--accent-blue);">📖 Step-by-Step Guide: Creating a Minimal Read-Only GitHub PAT</summary>
+              <ol style="margin:8px 0 0 18px; line-height:1.6; color:var(--text-muted);">
+                <li>Open <strong>GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens</strong>.</li>
+                <li>Click <strong>Generate new token</strong>, set an expiration, and choose <strong>Public Repositories (read-only)</strong>.</li>
+                <li>No special write permissions are required—this raises your API quota from 60/hr to <strong>5,000 requests/hr</strong>.</li>
+                <li>Paste the token above and click <strong>Save All Configuration</strong> below.</li>
+              </ol>
+            </details>
+          </div>
+
+          <!-- Scanner & Retroactive Timer -->
+          <div class="config-card">
+            <h3>2. Scanner & Retroactive Auto-Ignore Window</h3>
+            <div class="form-grid">
+              <div>
+                <label>Refresh Frequency (Minutes)</label>
+                <input type="number" id="cfg-freq" min="5" max="1440" />
+              </div>
+              <div>
+                <label>Retroactive Auto-Ignore Window (Days)</label>
+                <input type="number" id="cfg-auto-ignore" min="1" max="365" />
+              </div>
+              <div>
+                <label>Max New Results Per Query Per Scan</label>
+                <input type="number" id="cfg-max-results" min="1" max="100" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Dual Webhook Streams -->
+          <div class="config-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <h3>3. Dual Webhook Notification Streams (Discord / Slack / Generic)</h3>
+              <button class="btn-sm" onclick="syncWebhooks()">🔗 Use Discovery Webhook for Both</button>
+            </div>
+            <div class="form-grid">
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <label>Stream 1: Search Discoveries Webhook URL</label>
+                <div style="display:flex; gap:6px;">
+                  <input type="url" id="cfg-disc-webhook" placeholder="https://discord.com/api/webhooks/..." />
+                  <button class="btn-sm" onclick="testWebhook('discovery')">Test</button>
+                </div>
+                <label>Discovery Template (<code>{{query}}</code> <code>{{repo}}</code> <code>{{url}}</code> <code>{{stars}}</code> <code>{{description}}</code>)</label>
+                <textarea id="cfg-disc-tpl" rows="4"></textarea>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <label>Stream 2: Tracked Repo Updates Webhook URL</label>
+                <div style="display:flex; gap:6px;">
+                  <input type="url" id="cfg-track-webhook" placeholder="https://discord.com/api/webhooks/..." />
+                  <button class="btn-sm" onclick="testWebhook('tracked')">Test</button>
+                </div>
+                <label>Tracked Template (<code>{{repo}}</code> <code>{{branch}}</code> <code>{{commits}}</code> <code>{{author}}</code> <code>{{date}}</code> <code>{{url}}</code> <code>{{ai_summary}}</code>)</label>
+                <textarea id="cfg-track-tpl" rows="4"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- OpenAI-Compatible /v1 AI Provider -->
+          <div class="config-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+              <h3>4. OpenAI-Compatible <code>/v1</code> AI Summarizer (Ollama / vLLM / OpenAI)</h3>
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+                <input type="checkbox" id="cfg-ai-enabled" style="width:auto;" />
+                <strong>Enable AI Summaries</strong>
+              </label>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label>Base URL (<code>/v1</code>)</label>
+                <input type="text" id="cfg-ai-url" placeholder="http://ollama:11434/v1" />
+              </div>
+              <div>
+                <label>Model Name</label>
+                <input type="text" id="cfg-ai-model" placeholder="gemma2:2b" />
+              </div>
+              <div>
+                <label>API Key (Optional for Local LLMs)</label>
+                <input type="password" id="cfg-ai-key" placeholder="sk-..." />
+              </div>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;">
+              <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin:0;">
+                  <input type="checkbox" id="cfg-ai-readme" style="width:auto;" /> Summarize new repo READMEs
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin:0;">
+                  <input type="checkbox" id="cfg-ai-commits" style="width:auto;" /> Summarize tracked commit diffs
+                </label>
+              </div>
+              <button class="btn-sm" onclick="testAiConnection()">⚡ Test AI Connection</button>
+            </div>
+          </div>
+
+          <button class="btn-primary" style="padding:12px; font-size:15px;" onclick="saveAllSettings()">💾 Save All Configuration</button>
+
+          <!-- JSON Backup Export / Import -->
+          <div class="config-card">
+            <h3>5. Backup & Restore (Search Rules, Watchlist & Preferences)</h3>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button onclick="exportBackup()">⬇ Export JSON Backup</button>
+              <label class="btn-sm" style="border:1px solid var(--border); padding:8px 12px; border-radius:6px; cursor:pointer; background:var(--bg-elevated); color:var(--text-main);">
+                ⬆ Import JSON Backup
+                <input type="file" accept=".json" style="display:none;" onchange="importBackup(event)" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Admin Control Panel -->
+          <div class="config-card" id="admin-panel" style="display:none;">
+            <h3>6. Administrator User Management</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+              <div style="flex:1; min-width:160px;">
+                <label>New Username</label>
+                <input type="text" id="admin-new-user" />
+              </div>
+              <div style="flex:1; min-width:160px;">
+                <label>Initial Password</label>
+                <input type="password" id="admin-new-pass" />
+              </div>
+              <button class="btn-primary" onclick="adminCreateUser()">+ Create User</button>
+            </div>
+            <div id="admin-users-list" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- MOBILE BOTTOM THUMB BAR -->
+    <nav class="mobile-bottom-nav">
+      <button class="mobile-nav-item active" id="mtab-discoveries" onclick="switchTab('discoveries')">
+        <span>🔍</span>
+        <span>Discoveries (<span id="mbadge-discoveries">0</span>)</span>
+      </button>
+      <button class="mobile-nav-item" id="mtab-tracked" onclick="switchTab('tracked')">
+        <span>📌</span>
+        <span>Tracked (<span id="mbadge-tracked">0</span>)</span>
+      </button>
+      <button class="mobile-nav-item" id="mtab-ignored" onclick="switchTab('ignored')">
+        <span>🚫</span>
+        <span>Ignored (<span id="mbadge-ignored">0</span>)</span>
+      </button>
+      <button class="mobile-nav-item" id="mtab-config" onclick="switchTab('config')">
+        <span>⚙️</span>
+        <span>Config</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    let APP = {
+      needsSetup: false,
+      user: null,
+      settings: null,
+      queries: [],
+      discoveries: [],
+      tracked: [],
+      ignored: [],
+      activeTab: 'discoveries',
+      selectedTrackedId: null,
+      visibleDiscoveryIds: []
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3200);
+    }
+
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    function relTime(iso) {
+      if (!iso) return 'never';
+      const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function checkAuth() {
+      try {
+        const st = await api('/api/auth/status');
+        if (!st.authenticated) {
+          APP.needsSetup = st.needs_setup;
+          document.getElementById('auth-screen').style.display = 'flex';
+          document.getElementById('app-shell').style.display = 'none';
+          document.getElementById('auth-title').textContent = st.needs_setup ? 'Create Admin Account' : 'GitHub Radar';
+          document.getElementById('auth-subtitle').textContent = st.needs_setup
+            ? 'First-user bootstrap: this account receives full administrator privileges.'
+            : 'Sign in to your self-hosted radar';
+          document.getElementById('auth-submit-btn').textContent = st.needs_setup ? 'Create Admin Account' : 'Sign In';
+        } else {
+          document.getElementById('auth-screen').style.display = 'none';
+          document.getElementById('app-shell').style.display = 'flex';
+          await loadState(true);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function submitAuth(e) {
+      e.preventDefault();
+      const errBox = document.getElementById('auth-error');
+      errBox.style.display = 'none';
+      const username = document.getElementById('auth-username').value;
+      const password = document.getElementById('auth-password').value;
+      const endpoint = APP.needsSetup ? '/api/auth/setup' : '/api/auth/login';
+      try {
+        await api(endpoint, { method: 'POST', body: JSON.stringify({ username, password }) });
+        await checkAuth();
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      }
+    }
+
+    async function logout() {
+      await api('/api/auth/logout', { method: 'POST' });
+      location.reload();
+    }
+
+    async function loadState(populateConfigForm = false) {
+      try {
+        const data = await api('/api/state');
+        APP.user = data.user;
+        APP.settings = data.settings;
+        APP.queries = data.queries;
+        APP.discoveries = data.discoveries;
+        APP.tracked = data.tracked;
+        APP.ignored = data.ignored;
+
+        updateBadgesAndHeader();
+        renderQueries();
+        renderDiscoveries();
+        renderTrackedList();
+        renderIgnored();
+        if (populateConfigForm) populateConfig();
+        if (APP.user.is_admin && populateConfigForm) loadAdminUsers();
+      } catch (e) {
+        console.error('State load failed:', e);
+      }
+    }
+
+    function updateBadgesAndHeader() {
+      const dCount = APP.discoveries.length;
+      const tCount = APP.tracked.length;
+      const iCount = APP.ignored.length;
+      document.getElementById('badge-discoveries').textContent = dCount;
+      document.getElementById('badge-tracked').textContent = tCount;
+      document.getElementById('badge-ignored').textContent = iCount;
+      document.getElementById('mbadge-discoveries').textContent = dCount;
+      document.getElementById('mbadge-tracked').textContent = tCount;
+      document.getElementById('mbadge-ignored').textContent = iCount;
+
+      const dot = document.getElementById('scan-dot');
+      if (APP.settings.is_scanning) {
+        dot.classList.add('scanning');
+        document.getElementById('countdown-text').textContent = 'Scanning...';
+      } else {
+        dot.classList.remove('scanning');
+      }
+
+      document.getElementById('pat-warning-banner').style.display =
+        (!APP.settings.github_pat || APP.settings.github_pat.trim() === '') ? 'flex' : 'none';
+    }
+
+    // Live 1-second countdown ticker
+    setInterval(() => {
+      if (!APP.settings) return;
+      if (APP.settings.is_scanning) {
+        document.getElementById('countdown-text').textContent = 'Scanning...';
+        return;
+      }
+      if (!APP.settings.next_scan_at) return;
+      const diffSec = Math.max(0, Math.floor((new Date(APP.settings.next_scan_at).getTime() - Date.now()) / 1000));
+      const m = String(Math.floor(diffSec / 60)).padStart(2, '0');
+      const s = String(diffSec % 60).padStart(2, '0');
+      document.getElementById('countdown-text').textContent = `${m}m ${s}s`;
+    }, 1000);
+
+    // Background state poll every 12 seconds
+    setInterval(() => {
+      if (APP.user) loadState(false);
+    }, 12000);
+
+    function switchTab(tab) {
+      APP.activeTab = tab;
+      ['discoveries', 'tracked', 'ignored', 'config'].forEach((t) => {
+        document.getElementById(`pane-${t}`).classList.toggle('active', t === tab);
+        document.getElementById(`dtab-${t}`).classList.toggle('active', t === tab);
+        document.getElementById(`mtab-${t}`).classList.toggle('active', t === tab);
+      });
+      if (tab === 'config') populateConfig();
+    }
+
+    async function forceRefresh() {
+      try {
+        APP.settings.is_scanning = true;
+        updateBadgesAndHeader();
+        await api('/api/scan/force', { method: 'POST' });
+        showToast('Background scan started!');
+        setTimeout(() => loadState(false), 2000);
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    // =========================================================================
+    // TAB 1: SEARCH QUERIES & DISCOVERIES
+    // =========================================================================
+
+    function toggleMobileRulesDrawer() {
+      const d = document.getElementById('rules-drawer');
+      d.style.display = d.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    function renderQueries() {
+      const container = document.getElementById('queries-list');
+      if (APP.queries.length === 0) {
+        container.innerHTML = `<div style="padding:18px; color:var(--text-muted); font-size:12.5px;">No search rules yet. Add a GitHub query above (e.g. <code>topic:self-hosted language:rust</code>).</div>`;
+        return;
+      }
+      container.innerHTML = APP.queries.map((q) => `
+        <div class="watchlist-item" style="opacity:${q.is_enabled ? 1 : 0.5};">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+            <code style="color:var(--accent-blue); font-size:12.5px; word-break:break-all;">${esc(q.query_text)}</code>
+            <input type="checkbox" ${q.is_enabled ? 'checked' : ''} onchange="toggleQueryEnabled(${q.id})" style="width:auto;" title="Enable/Disable rule" />
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--text-muted);">
+            <span>⭐ >=${q.min_stars} • 🕒 ${q.initial_lookback_days}d • ${q.notify_webhook ? '🔔 On' : '🔕 Off'}</span>
+            <div style="display:flex; gap:4px;">
+              <button class="btn-sm" onclick="editQuery(${q.id})">Edit</button>
+              <button class="btn-sm btn-danger" onclick="deleteQuery(${q.id})">✕</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function saveSearchQuery() {
+      const editId = document.getElementById('edit-query-id').value;
+      const payload = {
+        query_text: document.getElementById('q-text').value,
+        min_stars: parseInt(document.getElementById('q-stars').value || '0', 10),
+        initial_lookback_days: parseInt(document.getElementById('q-lookback').value || '7', 10),
+        notify_webhook: document.getElementById('q-webhook').checked,
+        is_enabled: true
+      };
+      try {
+        if (editId) {
+          await api(`/api/queries/${editId}`, { method: 'PUT', body: JSON.stringify(payload) });
+          showToast('Search rule updated');
+        } else {
+          await api('/api/queries', { method: 'POST', body: JSON.stringify(payload) });
+          showToast('Search rule added');
+        }
+        resetQueryForm();
+        await loadState(false);
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    function editQuery(id) {
+      const q = APP.queries.find((x) => x.id === id);
+      if (!q) return;
+      document.getElementById('edit-query-id').value = q.id;
+      document.getElementById('q-text').value = q.query_text;
+      document.getElementById('q-stars').value = q.min_stars;
+      document.getElementById('q-lookback').value = q.initial_lookback_days;
+      document.getElementById('q-webhook').checked = q.notify_webhook;
+      document.getElementById('save-query-btn').textContent = 'Update Rule';
+      document.getElementById('cancel-edit-btn').style.display = 'inline-flex';
+      document.getElementById('rules-drawer').style.display = 'flex';
+    }
+
+    function resetQueryForm() {
+      document.getElementById('edit-query-id').value = '';
+      document.getElementById('q-text').value = '';
+      document.getElementById('q-stars').value = '0';
+      document.getElementById('q-lookback').value = '7';
+      document.getElementById('q-webhook').checked = true;
+      document.getElementById('save-query-btn').textContent = '+ Save Rule';
+      document.getElementById('cancel-edit-btn').style.display = 'none';
+    }
+
+    async function toggleQueryEnabled(id) {
+      const q = APP.queries.find((x) => x.id === id);
+      if (!q) return;
+      await api(`/api/queries/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...q, is_enabled: !q.is_enabled })
+      });
+      await loadState(false);
+    }
+
+    async function deleteQuery(id) {
+      await api(`/api/queries/${id}`, { method: 'DELETE' });
+      await loadState(false);
+    }
+
+    function renderDiscoveries() {
+      const feed = document.getElementById('discoveries-feed');
+      const filter = (document.getElementById('discoveries-filter').value || '').toLowerCase();
+      const filtered = APP.discoveries.filter((r) => {
+        if (!filter) return true;
+        const hay = `${r.full_name} ${r.description} ${r.language} ${r.matched_query} ${r.topics.join(' ')} ${r.readme_summary || ''}`.toLowerCase();
+        return hay.includes(filter);
+      });
+
+      APP.visibleDiscoveryIds = filtered.map((r) => r.id);
+
+      if (filtered.length === 0) {
+        feed.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">No unreviewed discoveries matching filter. Click <strong>Force Refresh</strong> to scan GitHub.</div>`;
+        return;
+      }
+
+      feed.innerHTML = filtered.map((r) => `
+        <article class="repo-card" id="repo-card-${r.id}">
+          <div class="repo-title-row">
+            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
+            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" title="Open on GitHub">↗ GitHub</a>
+          </div>
+          <div class="repo-meta">
+            <span>⭐ ${r.stars.toLocaleString()}</span>
+            ${r.language ? `<span>● ${esc(r.language)}</span>` : ''}
+            <span>Pushed ${relTime(r.pushed_at)}</span>
+            <span class="query-badge">${esc(r.matched_query)}</span>
+          </div>
+          ${r.topics.length > 0 ? `<div class="topic-pills">${r.topics.map((t) => `<span class="topic-pill">${esc(t)}</span>`).join('')}</div>` : ''}
+          <p style="color:var(--text-main); line-height:1.45;">${esc(r.description || 'No description provided.')}</p>
+          ${renderAiSummaryBlock(r)}
+          <div style="display:flex; gap:8px; margin-top:auto; padding-top:6px;">
+            <button class="btn-primary" style="flex:1;" onclick="triageRepo(${r.id}, 'track')">✓ Track</button>
+            <button style="flex:1;" onclick="triageRepo(${r.id}, 'ignore')">✕ Ignore</button>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderAiSummaryBlock(r) {
+      if (r.ai_status === 'pending') {
+        return `<div class="ai-box"><div class="ai-box-header"><span>✨ AI README Summary</span><span>Generating...</span></div><span style="opacity:0.8;">Summarizing repository README via /v1 AI endpoint...</span></div>`;
+      }
+      if (r.readme_summary) {
+        return `<div class="ai-box"><div class="ai-box-header"><span>✨ AI README Summary</span><button class="btn-sm" style="padding:1px 6px; font-size:10px;" onclick="regenerateRepoAi(${r.id})">↻</button></div><div>${esc(r.readme_summary)}</div></div>`;
+      }
+      if (r.ai_status === 'failed') {
+        return `<div class="ai-box" style="border-color:var(--accent-red);"><div class="ai-box-header"><span>⚠️ AI Summary Failed</span><button class="btn-sm" onclick="regenerateRepoAi(${r.id})">Retry</button></div></div>`;
+      }
+      return '';
+    }
+
+    async function triageRepo(id, action) {
+      const card = document.getElementById(`repo-card-${id}`);
+      if (card) card.classList.add('removing');
+      setTimeout(async () => {
+        await api(`/api/repos/${id}/action`, { method: 'POST', body: JSON.stringify({ action }) });
+        await loadState(false);
+      }, 140);
+    }
+
+    async function ignoreAllVisible() {
+      if (APP.visibleDiscoveryIds.length === 0) return;
+      await api('/api/repos/ignore-batch', {
+        method: 'POST',
+        body: JSON.stringify({ repo_ids: APP.visibleDiscoveryIds })
+      });
+      showToast(`Ignored ${APP.visibleDiscoveryIds.length} repositories`);
+      await loadState(false);
+    }
+
+    // =========================================================================
+    // TAB 2: TRACKED WATCHLIST & MULTI-BRANCH COMMITS / README VIEWER
+    // =========================================================================
+
+    async function quickTrackRepo() {
+      const inp = document.getElementById('quick-track-input');
+      const val = inp.value.trim();
+      if (!val) return;
+      try {
+        showToast('Fetching repository from GitHub...');
+        const res = await api('/api/repos/quick-track', {
+          method: 'POST',
+          body: JSON.stringify({ repo_input: val })
+        });
+        inp.value = '';
+        await loadState(false);
+        selectTrackedRepo(res.repo_id);
+        showToast('Repository added to Tracked watchlist!');
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    function renderTrackedList() {
+      const container = document.getElementById('tracked-watchlist');
+      const q = (document.getElementById('tracked-search').value || '').toLowerCase();
+      const sortMode = document.getElementById('tracked-sort').value;
+      const unreadOnly = document.getElementById('tracked-unread-only').checked;
+      const canReorder = sortMode === 'custom' && !q && !unreadOnly;
+
+      let list = APP.tracked.filter((r) => {
+        if (unreadOnly && r.unread_count === 0) return false;
+        if (!q) return true;
+        const hay = `${r.full_name} ${r.description} ${r.topics.join(' ')} ${r.readme_summary || ''} ${r.diff_summary || ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+
+      if (sortMode === 'activity') {
+        list.sort((a, b) => (b.is_pinned - a.is_pinned) || b.pushed_at.localeCompare(a.pushed_at));
+      } else if (sortMode === 'stars') {
+        list.sort((a, b) => (b.is_pinned - a.is_pinned) || (b.stars - a.stars));
+      } else {
+        list.sort((a, b) => (b.is_pinned - a.is_pinned) || (a.sort_order - b.sort_order));
+      }
+
+      if (list.length === 0) {
+        container.innerHTML = `<div style="padding:20px; color:var(--text-muted); text-align:center;">No tracked repositories match your filter.</div>`;
+        return;
+      }
+
+      container.innerHTML = list.map((r) => `
+        <div class="watchlist-item ${APP.selectedTrackedId === r.id ? 'active' : ''}" onclick="selectTrackedRepo(${r.id})">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+            <strong style="color:var(--accent-blue); font-size:13.5px; word-break:break-all;">
+              ${r.is_pinned ? '📌 ' : ''}${esc(r.full_name)}
+            </strong>
+            <div style="display:flex; gap:4px; align-items:center;" onclick="event.stopPropagation()">
+              ${r.unread_count > 0 ? `<span class="badge badge-unread">${r.unread_count} new</span>` : ''}
+              <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" style="padding:2px 5px;" title="Open on GitHub">↗</a>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-wrap:wrap; gap:5px;">
+            ${r.was_renamed ? `<span class="badge badge-warn" title="Previously ${esc(r.previous_name)}">Renamed from ${esc(r.previous_name)}</span>` : ''}
+            ${r.is_missing ? `<span class="badge badge-danger">404 Unavailable</span>` : ''}
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--text-muted);" onclick="event.stopPropagation()">
+            <span>⭐ ${r.stars.toLocaleString()} • ${relTime(r.pushed_at)}</span>
+            <div style="display:flex; gap:4px;">
+              <button class="btn-sm" style="padding:2px 6px;" onclick="repoAction(${r.id}, 'toggle_pin')" title="Pin/Unpin">📌</button>
+              <button class="btn-sm" style="padding:2px 6px;" onclick="repoAction(${r.id}, 'toggle_webhook')" title="Toggle Commit Webhook">${r.notify_webhook ? '🔔' : '🔕'}</button>
+              <button class="btn-sm" style="padding:2px 6px;" ${!canReorder ? 'disabled title="Switch to Custom Order without filters to reorder"' : ''} onclick="reorderRepo(${r.id}, 'up')">↑</button>
+              <button class="btn-sm" style="padding:2px 6px;" ${!canReorder ? 'disabled title="Switch to Custom Order without filters to reorder"' : ''} onclick="reorderRepo(${r.id}, 'down')">↓</button>
+              <button class="btn-sm btn-danger" style="padding:2px 6px;" onclick="repoAction(${r.id}, 'ignore')" title="Move to Ignored">✕</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function repoAction(id, action) {
+      await api(`/api/repos/${id}/action`, { method: 'POST', body: JSON.stringify({ action }) });
+      await loadState(false);
+    }
+
+    async function reorderRepo(repo_id, direction) {
+      await api('/api/repos/reorder', { method: 'POST', body: JSON.stringify({ repo_id, direction }) });
+      await loadState(false);
+    }
+
+    async function selectTrackedRepo(id) {
+      APP.selectedTrackedId = id;
+      renderTrackedList();
+      document.getElementById('tracked-split-container').classList.add('mobile-detail-open');
+      document.getElementById('tracked-empty-state').style.display = 'none';
+      document.getElementById('tracked-detail-content').style.display = 'block';
+
+      const repo = APP.tracked.find((x) => x.id === id);
+      if (!repo) return;
+
+      const link = document.getElementById('detail-repo-link');
+      link.textContent = repo.full_name;
+      link.href = repo.html_url;
+
+      let badgesHtml = '';
+      if (repo.was_renamed) {
+        badgesHtml += `<span class="badge badge-warn" style="cursor:pointer;" onclick="repoAction(${repo.id}, 'clear_rename')">Renamed from ${esc(repo.previous_name)} (click to dismiss)</span> `;
+      }
+      if (repo.is_missing) {
+        badgesHtml += `<span class="badge badge-danger">404 Deleted or Private on GitHub</span>`;
+      }
+      document.getElementById('detail-status-badges').innerHTML = badgesHtml;
+
+      try {
+        const details = await api(`/api/repos/${id}/details`);
+        document.getElementById('detail-commit-count').textContent = details.commits.length;
+
+        const aiBox = document.getElementById('detail-ai-diff-box');
+        if (details.diff_summary || details.ai_status === 'pending') {
+          aiBox.style.display = 'block';
+          document.getElementById('detail-ai-status').textContent = details.ai_status === 'pending' ? 'Generating...' : '';
+          document.getElementById('detail-ai-diff-text').textContent =
+            details.diff_summary || 'Generating AI summary of recent code changes...';
+        } else {
+          aiBox.style.display = 'none';
+        }
+
+        const cList = document.getElementById('detail-commits-list');
+        if (details.commits.length === 0) {
+          cList.innerHTML = `<div style="color:var(--text-muted);">No commits fetched yet. Click Force Refresh to scan branches.</div>`;
+        } else {
+          cList.innerHTML = details.commits.map((c) => `
+            <div class="commit-row ${c.is_read ? '' : 'unread'}">
+              <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:4px;">
+                ${c.branches.map((b) => `<span class="branch-pill">${esc(b)}</span>`).join('')}
+                <a href="${esc(c.html_url)}" target="_blank" rel="noopener" style="font-family:var(--font-mono); font-size:12px; color:var(--accent-blue);">${esc(c.sha.slice(0, 7))}</a>
+                <span style="font-size:12px; color:var(--text-muted);">• ${esc(c.author)} • ${relTime(c.committed_at)}</span>
+              </div>
+              <div style="font-size:13px;">${esc(c.message)}</div>
+            </div>
+          `).join('');
+        }
+
+        const rBody = document.getElementById('detail-readme-body');
+        rBody.innerHTML = details.readme_html || `<div style="color:var(--text-muted);">README not cached yet. Click "Refresh README" above.</div>`;
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    function closeMobileTrackedDetail() {
+      document.getElementById('tracked-split-container').classList.remove('mobile-detail-open');
+    }
+
+    function switchMobileDetailSubtab(which) {
+      document.getElementById('detail-panel-commits').style.display = which === 'commits' ? 'flex' : 'none';
+      document.getElementById('detail-panel-readme').style.display = which === 'readme' ? 'flex' : 'none';
+    }
+
+    async function markCurrentRepoRead() {
+      if (!APP.selectedTrackedId) return;
+      await api(`/api/repos/${APP.selectedTrackedId}/mark-read`, { method: 'POST' });
+      await loadState(false);
+      await selectTrackedRepo(APP.selectedTrackedId);
+      showToast('Marked all commits as read');
+    }
+
+    async function refreshCurrentRepoReadme() {
+      if (!APP.selectedTrackedId) return;
+      try {
+        showToast('Refreshing README from GitHub...');
+        const res = await api(`/api/repos/${APP.selectedTrackedId}/refresh-readme`, { method: 'POST' });
+        document.getElementById('detail-readme-body').innerHTML = res.readme_html;
+        showToast('README updated!');
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function regenerateCurrentRepoAi() {
+      if (!APP.selectedTrackedId) return;
+      await regenerateRepoAi(APP.selectedTrackedId);
+      await selectTrackedRepo(APP.selectedTrackedId);
+    }
+
+    async function regenerateRepoAi(id) {
+      await api(`/api/repos/${id}/regenerate-ai`, { method: 'POST' });
+      showToast('Queued AI summary generation');
+      await loadState(false);
+    }
+
+    // =========================================================================
+    // TAB 3: IGNORED & RETROACTIVE AUTO-EXPIRED
+    // =========================================================================
+
+    function renderIgnored() {
+      const feed = document.getElementById('ignored-feed');
+      const q = (document.getElementById('ignored-search').value || '').toLowerCase();
+      const filtered = APP.ignored.filter((r) => {
+        if (!q) return true;
+        return `${r.full_name} ${r.description} ${r.matched_query}`.toLowerCase().includes(q);
+      });
+
+      if (filtered.length === 0) {
+        feed.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">No ignored or expired repositories.</div>`;
+        return;
+      }
+
+      feed.innerHTML = filtered.map((r) => `
+        <article class="repo-card">
+          <div class="repo-title-row">
+            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
+            <span class="badge ${r.ignore_type === 'manual' ? 'badge-danger' : 'badge-warn'}">
+              ${r.ignore_type === 'manual' ? 'Manually Ignored' : 'Auto-Expired'}
+            </span>
+          </div>
+          <div class="repo-meta">
+            <span>⭐ ${r.stars.toLocaleString()}</span>
+            <span>Discovered ${relTime(r.discovered_at)}</span>
+            <span class="query-badge">${esc(r.matched_query)}</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted);">${esc(r.description || 'No description')}</p>
+          <div style="display:flex; gap:8px; margin-top:auto;">
+            <button class="btn-primary btn-sm" style="flex:1;" onclick="triageRepo(${r.id}, 'track')">✓ Track Anyway</button>
+            <button class="btn-danger btn-sm" onclick="hardDeleteRepo(${r.id})" title="Hard-delete from SQLite (only returns if pushed in the future)">🗑 Delete Record</button>
+          </div>
+        </article>
+      `).join('');
+    }
+
+    async function hardDeleteRepo(id) {
+      await api(`/api/repos/${id}`, { method: 'DELETE' });
+      showToast('Record deleted from database');
+      await loadState(false);
+    }
+
+    // =========================================================================
+    // TAB 4: CONFIGURATION, BACKUP & ADMIN PANEL
+    // =========================================================================
+
+    function populateConfig() {
+      if (!APP.settings || !APP.user) return;
+      document.getElementById('cfg-username').textContent = APP.user.username + (APP.user.is_admin ? ' (Admin)' : '');
+      document.getElementById('cfg-session-exp').textContent = new Date(APP.user.session_expires_at).toLocaleDateString();
+
+      document.getElementById('cfg-pat').value = APP.settings.github_pat || '';
+      document.getElementById('cfg-freq').value = APP.settings.refresh_frequency_minutes;
+      document.getElementById('cfg-auto-ignore').value = APP.settings.auto_ignore_days;
+      document.getElementById('cfg-max-results').value = APP.settings.max_results_per_query;
+      document.getElementById('cfg-disc-webhook').value = APP.settings.discovery_webhook_url || '';
+      document.getElementById('cfg-disc-tpl').value = APP.settings.discovery_webhook_template || '';
+      document.getElementById('cfg-track-webhook').value = APP.settings.tracked_webhook_url || '';
+      document.getElementById('cfg-track-tpl').value = APP.settings.tracked_webhook_template || '';
+      document.getElementById('cfg-ai-enabled').checked = APP.settings.ai_enabled;
+      document.getElementById('cfg-ai-url').value = APP.settings.ai_base_url || '';
+      document.getElementById('cfg-ai-model').value = APP.settings.ai_model || '';
+      document.getElementById('cfg-ai-key').value = APP.settings.ai_api_key || '';
+      document.getElementById('cfg-ai-readme').checked = APP.settings.ai_summarize_readme;
+      document.getElementById('cfg-ai-commits').checked = APP.settings.ai_summarize_commits;
+
+      if (APP.settings.rate_limit_remaining != null) {
+        document.getElementById('cfg-rate-badge').textContent =
+          `API Quota: ${APP.settings.rate_limit_remaining} / ${APP.settings.rate_limit_limit}`;
+      }
+
+      document.getElementById('admin-panel').style.display = APP.user.is_admin ? 'flex' : 'none';
+    }
+
+    function syncWebhooks() {
+      document.getElementById('cfg-track-webhook').value = document.getElementById('cfg-disc-webhook').value;
+      showToast('Copied Discovery Webhook URL to Tracked Webhook URL');
+    }
+
+    async function saveAllSettings() {
+      const payload = {
+        github_pat: document.getElementById('cfg-pat').value,
+        refresh_frequency_minutes: parseInt(document.getElementById('cfg-freq').value || '30', 10),
+        auto_ignore_days: parseInt(document.getElementById('cfg-auto-ignore').value || '7', 10),
+        max_results_per_query: parseInt(document.getElementById('cfg-max-results').value || '15', 10),
+        discovery_webhook_url: document.getElementById('cfg-disc-webhook').value,
+        discovery_webhook_template: document.getElementById('cfg-disc-tpl').value,
+        tracked_webhook_url: document.getElementById('cfg-track-webhook').value,
+        tracked_webhook_template: document.getElementById('cfg-track-tpl').value,
+        ai_enabled: document.getElementById('cfg-ai-enabled').checked,
+        ai_base_url: document.getElementById('cfg-ai-url').value,
+        ai_model: document.getElementById('cfg-ai-model').value,
+        ai_api_key: document.getElementById('cfg-ai-key').value,
+        ai_summarize_readme: document.getElementById('cfg-ai-readme').checked,
+        ai_summarize_commits: document.getElementById('cfg-ai-commits').checked
+      };
+      try {
+        await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
+        showToast('Configuration saved! Retroactive window & timer updated.');
+        await loadState(true);
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function testGithubPat() {
+      try {
+        const pat = document.getElementById('cfg-pat').value;
+        const res = await api('/api/settings/test-github', {
+          method: 'POST',
+          body: JSON.stringify({ github_pat: pat })
+        });
+        document.getElementById('cfg-rate-badge').textContent =
+          `Core: ${res.core_remaining}/${res.core_limit} | Search: ${res.search_remaining}/${res.search_limit}`;
+        showToast(`GitHub Token OK! Remaining: ${res.core_remaining}/${res.core_limit}`);
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function testWebhook(stream) {
+      const url = stream === 'discovery'
+        ? document.getElementById('cfg-disc-webhook').value
+        : document.getElementById('cfg-track-webhook').value;
+      try {
+        await api('/api/settings/test-webhook', {
+          method: 'POST',
+          body: JSON.stringify({ webhook_url: url, stream })
+        });
+        showToast('Test webhook delivered!');
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function testAiConnection() {
+      try {
+        showToast('Testing /v1 AI connection...');
+        const res = await api('/api/settings/test-ai', {
+          method: 'POST',
+          body: JSON.stringify({
+            ai_base_url: document.getElementById('cfg-ai-url').value,
+            ai_api_key: document.getElementById('cfg-ai-key').value,
+            ai_model: document.getElementById('cfg-ai-model').value
+          })
+        });
+        showToast(`AI OK: "${res.reply}"`);
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function exportBackup() {
+      const data = await api('/api/backup/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `github-radar-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+    }
+
+    async function importBackup(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        await api('/api/backup/import', { method: 'POST', body: text });
+        showToast('Backup imported successfully!');
+        await loadState(true);
+      } catch (err) {
+        showToast('Import failed: ' + err.message);
+      }
+    }
+
+    // Admin Users Management
+    async function loadAdminUsers() {
+      try {
+        const res = await api('/api/admin/users');
+        const list = document.getElementById('admin-users-list');
+        list.innerHTML = res.users.map((u) => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-canvas); border:1px solid var(--border); border-radius:6px; flex-wrap:wrap; gap:8px;">
+            <div>
+              <strong>${esc(u.username)}</strong>
+              ${u.is_admin ? '<span class="badge badge-unread">Admin</span>' : ''}
+              ${!u.is_active ? '<span class="badge badge-danger">Disabled</span>' : ''}
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn-sm" onclick="adminResetPassword(${u.id})">Reset Password</button>
+              ${!u.is_admin ? `
+                <button class="btn-sm" onclick="adminToggleActive(${u.id}, ${!u.is_active})">${u.is_active ? 'Disable' : 'Enable'}</button>
+                <button class="btn-sm btn-danger" onclick="adminDeleteUser(${u.id})">Delete</button>
+              ` : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {}
+    }
+
+    async function adminCreateUser() {
+      const u = document.getElementById('admin-new-user').value;
+      const p = document.getElementById('admin-new-pass').value;
+      try {
+        await api('/api/admin/users', { method: 'POST', body: JSON.stringify({ username: u, password: p }) });
+        document.getElementById('admin-new-user').value = '';
+        document.getElementById('admin-new-pass').value = '';
+        showToast('User created');
+        loadAdminUsers();
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function adminResetPassword(id) {
+      const pw = prompt('Enter new password (min 6 characters):');
+      if (!pw) return;
+      try {
+        await api(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify({ password: pw }) });
+        showToast('Password updated');
+      } catch (e) {
+        showToast(e.message);
+      }
+    }
+
+    async function adminToggleActive(id, is_active) {
+      await api(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify({ is_active }) });
+      loadAdminUsers();
+    }
+
+    async function adminDeleteUser(id) {
+      if (!confirm('Delete this user and all their isolated data?')) return;
+      await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+      loadAdminUsers();
+    }
+
+    checkAuth();
+  </script>
+</body>
+</html>
