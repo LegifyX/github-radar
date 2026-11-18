@@ -4,6 +4,17 @@ use rusqlite::params;
 
 use crate::state::AppState;
 
+/// GitHub owner/repo segments: no separators, no `.`/`..`, no whitespace.
+fn is_valid_slug_part(part: &str) -> bool {
+    !part.is_empty()
+        && part.len() <= 100
+        && part != "."
+        && part != ".."
+        && part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
 pub fn parse_github_slug(raw: &str) -> Option<String> {
     let mut s = raw.trim().trim_end_matches('/').to_string();
     if let Some(idx) = s.find("github.com/") {
@@ -13,7 +24,7 @@ pub fn parse_github_slug(raw: &str) -> Option<String> {
     if parts.len() >= 2 {
         let owner = parts[0];
         let repo = parts[1].trim_end_matches(".git");
-        if !owner.is_empty() && !repo.is_empty() {
+        if is_valid_slug_part(owner) && is_valid_slug_part(repo) {
             return Some(format!("{}/{}", owner, repo));
         }
     }
@@ -80,4 +91,35 @@ pub async fn fetch_and_sanitize_readme(
         .replace("href=\"./", &format!("href=\"{}", blob_base));
 
     Some(rewritten)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_github_slug;
+
+    #[test]
+    fn accepts_slugs_and_urls() {
+        assert_eq!(
+            parse_github_slug("owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            parse_github_slug("https://github.com/owner/repo/tree/main/src").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            parse_github_slug("  owner/repo.git/  ").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn rejects_traversal_and_garbage() {
+        assert_eq!(parse_github_slug("https://github.com/../rate_limit"), None);
+        assert_eq!(parse_github_slug("owner/.."), None);
+        assert_eq!(parse_github_slug("owner/..%2f.."), None);
+        assert_eq!(parse_github_slug("owner/re po"), None);
+        assert_eq!(parse_github_slug("not-a-repo"), None);
+        assert_eq!(parse_github_slug("owner/"), None);
+    }
 }

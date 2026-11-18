@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
+use tracing::warn;
 
 use crate::{
     db::ensure_user_settings,
@@ -53,7 +54,11 @@ pub async fn sync_single_tracked_repo(
     }
 
     if !resp.status().is_success() {
-        return Ok(());
+        return Err(format!(
+            "GitHub returned {} for {}",
+            resp.status(),
+            stored_full_name
+        ));
     }
 
     let gh_repo: Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -114,19 +119,27 @@ pub async fn sync_single_tracked_repo(
     }
 
     let mut branch_names = vec![default_branch.clone()];
-    if let Ok(b_resp) = b_req.send().await {
-        update_rate_limit_from_headers(state, user_id, b_resp.headers());
-        if let Ok(b_arr) = b_resp.json::<Value>().await {
-            if let Some(arr) = b_arr.as_array() {
-                for b in arr {
-                    if let Some(name) = b["name"].as_str() {
-                        if !branch_names.contains(&name.to_string()) && branch_names.len() < 5 {
-                            branch_names.push(name.to_string());
+    match b_req.send().await {
+        Ok(b_resp) if b_resp.status().is_success() => {
+            update_rate_limit_from_headers(state, user_id, b_resp.headers());
+            if let Ok(b_arr) = b_resp.json::<Value>().await {
+                if let Some(arr) = b_arr.as_array() {
+                    for b in arr {
+                        if let Some(name) = b["name"].as_str() {
+                            if !branch_names.contains(&name.to_string()) && branch_names.len() < 5 {
+                                branch_names.push(name.to_string());
+                            }
                         }
                     }
                 }
             }
         }
+        Ok(b_resp) => warn!(
+            "Branch list for {} returned {}; only the default branch will be scanned",
+            current_full_name,
+            b_resp.status()
+        ),
+        Err(err) => warn!("Branch list for {} failed: {}", current_full_name, err),
     }
 
     // Fetch recent commits across active branches & deduplicate by SHA
@@ -148,7 +161,22 @@ pub async fn sync_single_tracked_repo(
 
         let c_resp = match c_req.send().await {
             Ok(r) if r.status().is_success() => r,
-            _ => continue,
+            Ok(r) => {
+                warn!(
+                    "Commit fetch for {}@{} returned {}; skipping branch",
+                    current_full_name,
+                    branch,
+                    r.status()
+                );
+                continue;
+            }
+            Err(err) => {
+                warn!(
+                    "Commit fetch for {}@{} failed: {}",
+                    current_full_name, branch, err
+                );
+                continue;
+            }
         };
         update_rate_limit_from_headers(state, user_id, c_resp.headers());
 
@@ -157,99 +185,112 @@ pub async fn sync_single_tracked_repo(
             Err(_) => continue,
         };
 
-        if let Some(arr) = c_list.as_array() {
-            let conn = state.db().map_err(|e| e.1)?;
-            for c in arr {
-                let sha = c["sha"].as_str().unwrap_or("").to_string();
-                if sha.is_empty() {
-                    continue;
-                }
-                let author = c["commit"]["author"]["name"]
-                    .as_str()
-                    .or_else(|| c["author"]["login"].as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                let message = c["commit"]["message"]
-                    .as_str()
-                    .unwrap_or("")
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                let committed_at = c["commit"]["author"]["date"]
-                    .as_str()
-                    .unwrap_or(&Utc::now().to_rfc3339())
-                    .to_string();
-                let commit_url = c["html_url"].as_str().unwrap_or("").to_string();
+        let Some(arr) = c_list.as_array() else {
+            continue;
+        };
 
-                let existing_branches: Option<String> = conn
-                    .query_row(
-                        "SELECT branches_json FROM commits WHERE user_id = ?1 AND repo_id = ?2 AND sha = ?3",
-                        params![user_id, repo_id, sha],
-                        |r| r.get(0),
+        // One transaction per branch: the naive version needed a write
+        // transaction per commit.
+        let mut conn = state.db().map_err(|e| e.1)?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        for c in arr {
+            let sha = c["sha"].as_str().unwrap_or("").to_string();
+            if sha.is_empty() {
+                continue;
+            }
+            let author = c["commit"]["author"]["name"]
+                .as_str()
+                .or_else(|| c["author"]["login"].as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let message = c["commit"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let committed_at = c["commit"]["author"]["date"]
+                .as_str()
+                .unwrap_or(&Utc::now().to_rfc3339())
+                .to_string();
+            let commit_url = c["html_url"].as_str().unwrap_or("").to_string();
+
+            let existing_branches: Option<String> = tx
+                .query_row(
+                    "SELECT branches_json FROM commits WHERE user_id = ?1 AND repo_id = ?2 AND sha = ?3",
+                    params![user_id, repo_id, sha],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+
+            if let Some(b_json) = existing_branches {
+                let mut b_vec: Vec<String> = serde_json::from_str(&b_json).unwrap_or_default();
+                if !b_vec.contains(branch) {
+                    b_vec.push(branch.clone());
+                    let updated_json =
+                        serde_json::to_string(&b_vec).unwrap_or_else(|_| "[]".into());
+                    tx.execute(
+                        "UPDATE commits SET branches_json = ?1 WHERE user_id = ?2 AND repo_id = ?3 AND sha = ?4",
+                        params![updated_json, user_id, repo_id, sha],
                     )
-                    .optional()
-                    .unwrap_or(None);
+                    .map_err(|e| e.to_string())?;
+                }
+            } else {
+                let b_json =
+                    serde_json::to_string(&vec![branch.clone()]).unwrap_or_else(|_| "[]".into());
+                let is_read_val = if is_initial_baseline { 1 } else { 0 };
+                tx.execute(
+                    "INSERT INTO commits (user_id, repo_id, sha, branches_json, author, message, committed_at, html_url, is_read)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        user_id,
+                        repo_id,
+                        sha,
+                        b_json,
+                        author,
+                        message,
+                        committed_at,
+                        commit_url,
+                        is_read_val
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
 
-                if let Some(b_json) = existing_branches {
-                    let mut b_vec: Vec<String> = serde_json::from_str(&b_json).unwrap_or_default();
-                    if !b_vec.contains(branch) {
-                        b_vec.push(branch.clone());
-                        let updated_json =
-                            serde_json::to_string(&b_vec).unwrap_or_else(|_| "[]".into());
-                        let _ = conn.execute(
-                            "UPDATE commits SET branches_json = ?1 WHERE user_id = ?2 AND repo_id = ?3 AND sha = ?4",
-                            params![updated_json, user_id, repo_id, sha],
-                        );
-                    }
-                } else {
-                    let b_json = serde_json::to_string(&vec![branch.clone()])
-                        .unwrap_or_else(|_| "[]".into());
-                    let is_read_val = if is_initial_baseline { 1 } else { 0 };
-                    let _ = conn.execute(
-                        "INSERT INTO commits (user_id, repo_id, sha, branches_json, author, message, committed_at, html_url, is_read)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                        params![
-                            user_id,
-                            repo_id,
-                            sha,
-                            b_json,
-                            author,
-                            message,
-                            committed_at,
-                            commit_url,
-                            is_read_val
-                        ],
-                    );
-
-                    if !is_initial_baseline {
-                        new_commits_for_webhook.push((
-                            sha,
-                            branch.clone(),
-                            author,
-                            message,
-                            committed_at,
-                        ));
-                    }
+                if !is_initial_baseline {
+                    new_commits_for_webhook.push((
+                        sha,
+                        branch.clone(),
+                        author,
+                        message,
+                        committed_at,
+                    ));
                 }
             }
         }
+
+        tx.commit().map_err(|e| e.to_string())?;
     }
 
     // Update unread count on repo
     {
-        let conn = state.db().map_err(|e| e.1)?;
-        let unread: i64 = conn
+        let mut conn = state.db().map_err(|e| e.1)?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let unread: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM commits WHERE repo_id = ?1 AND user_id = ?2 AND is_read = 0",
                 params![repo_id, user_id],
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        let _ = conn.execute(
+        tx.execute(
             "UPDATE repos SET unread_count = ?1 WHERE id = ?2 AND user_id = ?3",
             params![unread, repo_id, user_id],
-        );
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
     }
 
     // Fetch & cache README if missing or if new commits arrived

@@ -40,15 +40,57 @@ pub fn run_daily_maintenance(conn: &Connection) {
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;");
 }
 
+/// RAII guard for a user scan.
+///
+/// The in-memory guard and the `is_scanning` column are released even if the
+/// task panics or is cancelled, so a crash mid-scan can never wedge a user
+/// until the next restart.
+pub struct ScanGuard {
+    state: AppState,
+    user_id: i64,
+}
+
+impl ScanGuard {
+    fn acquire(state: &AppState, user_id: i64) -> Option<Self> {
+        let mut active = state
+            .scanning_users
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !active.insert(user_id) {
+            return None;
+        }
+        Some(Self {
+            state: state.clone(),
+            user_id,
+        })
+    }
+}
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        // Clear the DB flag first: the in-memory entry is what lets the next
+        // scan start, so it must not be released before the flag is reset.
+        if let Ok(conn) = self.state.db() {
+            let _ = conn.execute(
+                "UPDATE user_settings SET is_scanning = 0 WHERE user_id = ?1",
+                params![self.user_id],
+            );
+        }
+        let mut active = self
+            .state
+            .scanning_users
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        active.remove(&self.user_id);
+    }
+}
+
 pub fn trigger_user_scan(state: AppState, user_id: i64) {
     tokio::spawn(async move {
-        {
-            let mut active = state.scanning_users.lock().await;
-            if active.contains(&user_id) {
-                return;
-            }
-            active.insert(user_id);
-        }
+        let _guard = match ScanGuard::acquire(&state, user_id) {
+            Some(guard) => guard,
+            None => return,
+        };
 
         if let Ok(conn) = state.db() {
             let _ = conn.execute(
@@ -70,8 +112,5 @@ pub fn trigger_user_scan(state: AppState, user_id: i64) {
                 params![now.to_rfc3339(), next, err_str, user_id],
             );
         }
-
-        let mut active = state.scanning_users.lock().await;
-        active.remove(&user_id);
     });
 }

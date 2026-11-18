@@ -79,3 +79,23 @@ impl FromRequestParts<AppState> for AuthUser {
         Ok(user)
     }
 }
+
+/// bcrypt is deliberately slow (~250 ms at the default cost), so it runs on the
+/// blocking pool instead of stalling a Tokio worker.
+pub async fn hash_password(password: String) -> Result<String, AppError> {
+    tokio::task::spawn_blocking(move || bcrypt::hash(&password, bcrypt::DEFAULT_COST))
+        .await
+        .map_err(|err| {
+            AppError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Password hashing failed: {err}"),
+            )
+        })?
+        .map_err(AppError::from)
+}
+
+pub async fn verify_password(password: String, hash: String) -> bool {
+    tokio::task::spawn_blocking(move || bcrypt::verify(&password, &hash).unwrap_or(false))
+        .await
+        .unwrap_or(false)
+}

@@ -3,6 +3,13 @@ use rusqlite::{params, Connection};
 
 use crate::models::{secret_hint, UserSettings};
 
+/// Bump this when adding a migration step below.
+///
+/// Version 1 is the original schema, which `CREATE TABLE IF NOT EXISTS` already
+/// brings any existing database up to. Future column additions must be added as
+/// a new `match` arm so deployed `/data/radar.db` files migrate in place.
+const SCHEMA_VERSION: i64 = 1;
+
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "
@@ -121,6 +128,36 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         UPDATE repos SET ai_status = 'none' WHERE ai_status = 'pending';
         ",
     )?;
+
+    migrate(conn)?;
+    Ok(())
+}
+
+fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let mut version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+
+    if version > SCHEMA_VERSION {
+        // An older binary against a newer database: keep running (all queries
+        // name their columns) but say so loudly.
+        tracing::warn!(
+            "database schema v{} is newer than this build (v{}); some settings may be ignored",
+            version,
+            SCHEMA_VERSION
+        );
+        return Ok(());
+    }
+
+    while version < SCHEMA_VERSION {
+        match version {
+            // v0 -> v1: the baseline schema above created every table, so an
+            // existing database only needs the version stamped.
+            0 => {}
+            _ => unreachable!("missing migration step for schema v{version}"),
+        }
+        version += 1;
+        conn.pragma_update(None, "user_version", version)?;
+        tracing::info!("migrated database to schema version {}", version);
+    }
     Ok(())
 }
 

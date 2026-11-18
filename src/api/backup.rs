@@ -88,14 +88,15 @@ pub async fn api_import_backup(
     user: AuthUser,
     Json(payload): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let conn = state.db()?;
+    let mut conn = state.db()?;
     ensure_user_settings(&conn, user.id)?;
     let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
 
     if let Some(queries) = payload["queries"].as_array() {
         for q in queries {
             if let Some(qt) = q["query_text"].as_str() {
-                let exists: Option<i64> = conn
+                let exists: Option<i64> = tx
                     .query_row(
                         "SELECT id FROM search_queries WHERE user_id = ?1 AND query_text = ?2",
                         params![user.id, qt],
@@ -103,7 +104,7 @@ pub async fn api_import_backup(
                     )
                     .optional()?;
                 if exists.is_none() {
-                    conn.execute(
+                    tx.execute(
                         "INSERT INTO search_queries (user_id, query_text, min_stars, initial_lookback_days, notify_webhook, is_enabled, created_at)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                         params![
@@ -126,7 +127,7 @@ pub async fn api_import_backup(
             let gh_id = r["github_repo_id"].as_i64().unwrap_or(0);
             let full_name = r["full_name"].as_str().unwrap_or("");
             if gh_id > 0 && !full_name.is_empty() {
-                conn.execute(
+                tx.execute(
                     "INSERT INTO repos (
                         user_id, github_repo_id, full_name, html_url, description, language, stars,
                         topics_json, pushed_at, default_branch, status, ignore_type, matched_query,
@@ -161,5 +162,6 @@ pub async fn api_import_backup(
         }
     }
 
+    tx.commit()?;
     Ok(Json(json!({ "ok": true })))
 }

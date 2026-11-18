@@ -92,13 +92,15 @@ pub async fn api_quick_track(
     let now = Utc::now().to_rfc3339();
 
     let repo_db_id = {
-        let conn = state.db()?;
-        let _ = conn.execute(
+        let mut conn = state.db()?;
+        let tx = conn.transaction()?;
+
+        tx.execute(
             "DELETE FROM deleted_tombstones WHERE user_id = ?1 AND github_repo_id = ?2",
             params![user.id, gh_id],
-        );
+        )?;
 
-        let max_order: i64 = conn
+        let max_order: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(sort_order), 0) FROM repos WHERE user_id = ?1 AND status = 'tracked'",
                 params![user.id],
@@ -106,7 +108,7 @@ pub async fn api_quick_track(
             )
             .unwrap_or(0);
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO repos (
                 user_id, github_repo_id, full_name, html_url, description, language, stars,
                 topics_json, pushed_at, default_branch, status, ignore_type, matched_query,
@@ -140,17 +142,21 @@ pub async fn api_quick_track(
             ],
         )?;
 
-        conn.query_row(
+        let id: i64 = tx.query_row(
             "SELECT id FROM repos WHERE user_id = ?1 AND github_repo_id = ?2",
             params![user.id, gh_id],
             |r| r.get::<_, i64>(0),
-        )?
+        )?;
+        tx.commit()?;
+        id
     };
 
     // Spawn immediate baseline commit + README fetch
     let bg_state = state.clone();
     tokio::spawn(async move {
-        let _ = sync_single_tracked_repo(&bg_state, user.id, repo_db_id, true).await;
+        if let Err(err) = sync_single_tracked_repo(&bg_state, user.id, repo_db_id, true).await {
+            tracing::warn!("Baseline sync failed for repo {}: {}", repo_db_id, err);
+        }
     });
 
     Ok(Json(json!({ "ok": true, "repo_id": repo_db_id })))
@@ -178,12 +184,14 @@ pub async fn api_repo_action(
                 )
                 .unwrap_or(0);
             conn.execute(
-                "UPDATE repos SET status = 'tracked', ignore_type = 'none', sort_order = ?1 WHERE id = ?2 AND user_id = ?3",
+                "UPDATE repos SET status = 'tracked', ignore_type = 'none', is_missing = 0, sort_order = ?1 WHERE id = ?2 AND user_id = ?3",
                 params![max_order + 1, id, user.id],
             )?;
             let bg_state = state.clone();
             tokio::spawn(async move {
-                let _ = sync_single_tracked_repo(&bg_state, user.id, id, true).await;
+                if let Err(err) = sync_single_tracked_repo(&bg_state, user.id, id, true).await {
+                    tracing::warn!("Baseline sync failed for repo {}: {}", id, err);
+                }
             });
         }
         "ignore" => {
@@ -232,13 +240,15 @@ pub async fn api_ignore_batch(
     user: AuthUser,
     Json(input): Json<IgnoreBatchInput>,
 ) -> Result<Json<Value>, AppError> {
-    let conn = state.db()?;
+    let mut conn = state.db()?;
+    let tx = conn.transaction()?;
     for rid in input.repo_ids {
-        conn.execute(
+        tx.execute(
             "UPDATE repos SET ignore_type = 'manual' WHERE id = ?1 AND user_id = ?2",
             params![rid, user.id],
         )?;
     }
+    tx.commit()?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -253,14 +263,15 @@ pub async fn api_reorder_repos(
     user: AuthUser,
     Json(input): Json<ReorderInput>,
 ) -> Result<Json<Value>, AppError> {
-    let conn = state.db()?;
-    let target_pin: i64 = conn.query_row(
+    let mut conn = state.db()?;
+    let tx = conn.transaction()?;
+    let target_pin: i64 = tx.query_row(
         "SELECT is_pinned FROM repos WHERE id = ?1 AND user_id = ?2",
         params![input.repo_id, user.id],
         |r| r.get(0),
     )?;
 
-    let mut stmt = conn.prepare(
+    let mut stmt = tx.prepare(
         "SELECT id FROM repos
          WHERE user_id = ?1 AND status = 'tracked' AND ignore_type = 'none' AND is_pinned = ?2
          ORDER BY sort_order ASC, discovered_at DESC",
@@ -278,12 +289,14 @@ pub async fn api_reorder_repos(
         }
     }
 
+    drop(stmt);
     for (idx, rid) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE repos SET sort_order = ?1 WHERE id = ?2 AND user_id = ?3",
             params![(idx + 1) as i64, rid, user.id],
         )?;
     }
+    tx.commit()?;
 
     Ok(Json(json!({ "ok": true })))
 }
@@ -344,15 +357,17 @@ pub async fn api_repo_mark_read(
     user: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, AppError> {
-    let conn = state.db()?;
-    conn.execute(
+    let mut conn = state.db()?;
+    let tx = conn.transaction()?;
+    tx.execute(
         "UPDATE commits SET is_read = 1 WHERE repo_id = ?1 AND user_id = ?2",
         params![id, user.id],
     )?;
-    conn.execute(
+    tx.execute(
         "UPDATE repos SET unread_count = 0 WHERE id = ?1 AND user_id = ?2",
         params![id, user.id],
     )?;
+    tx.commit()?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -413,8 +428,9 @@ pub async fn api_delete_repo(
     user: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, AppError> {
-    let conn = state.db()?;
-    if let Some(gh_id) = conn
+    let mut conn = state.db()?;
+    let tx = conn.transaction()?;
+    if let Some(gh_id) = tx
         .query_row(
             "SELECT github_repo_id FROM repos WHERE id = ?1 AND user_id = ?2",
             params![id, user.id],
@@ -423,15 +439,16 @@ pub async fn api_delete_repo(
         .optional()?
     {
         let now = Utc::now().to_rfc3339();
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO deleted_tombstones (user_id, github_repo_id, deleted_at)
              VALUES (?1, ?2, ?3)",
             params![user.id, gh_id, now],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM repos WHERE id = ?1 AND user_id = ?2",
             params![id, user.id],
         )?;
     }
+    tx.commit()?;
     Ok(Json(json!({ "ok": true })))
 }

@@ -71,6 +71,8 @@ The four frontend assets live as real files under `static/` and are embedded wit
 * **Immediate Session Revocation:** Disabling or deleting a user in the Admin Panel immediately deletes their rows from `sessions`, revoking access across all desktop and mobile clients. Resetting a user's password does the same, so a previously issued cookie cannot outlive the reset.
 * **Write-Only Secrets:** `github_pat` and `ai_api_key` are stored in SQLite but never serialized back to the client. `/api/state` exposes only `github_pat_set` / `github_pat_hint` (masked, last 4 characters) and the `ai_api_key_*` equivalents. An empty secret field on save means "keep the stored value"; removal requires the explicit `clear_github_pat` / `clear_ai_api_key` flags. The GitHub and AI test buttons, plus every scanner path, fall back to the stored secret when none is supplied.
 * **Cookie Hardening:** Session cookies are `HttpOnly; SameSite=Lax`. `Secure` is added when `COOKIE_SECURE=1`, which operators set when TLS terminates in a reverse proxy; the default keeps plain-HTTP LAN installs usable.
+* **Sign-In Throttling:** Failed logins are counted per username (case-insensitive) in memory. After 5 failures the username is locked for 15 minutes with `429 Too Many Requests`; a successful login clears the counter and expired entries are pruned on write.
+* **Response Hardening:** Every response carries `Content-Security-Policy` (`default-src 'self'`; inline script/style allowed because the UI is a single document; remote images limited to `https:`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 * **Per-User Data Isolation:** Every table (`user_settings`, `search_queries`, `repos`, `commits`, `deleted_tombstones`) is scoped by `user_id` with `ON DELETE CASCADE`.
 
 ---
@@ -99,6 +101,7 @@ The four frontend assets live as real files under `static/` and are embedded wit
     * Pin toggle (`📌`) pinning items to the top (`is_pinned DESC, sort_order ASC`).
     * Up/Down (`↑` / `↓`) custom reorder buttons (automatically disabled when filtered or sorted by non-custom order to prevent index confusion).
     * Per-repo webhook toggle (`🔔` / `🔕`) controlling Tracked Repo Update notifications.
+    * Ignoring a tracked repo moves it back to `discovery` with `ignore_type = 'manual'` (it appears under Ignored); **Track Anyway** or a fresh Track restores it without losing its commit history.
     * **Status Badges:** Unread commit counter (`N new`), **Renamed (`301`)** badge (`Renamed from old/name`, dismissible), and **404 Unavailable** warning badge.
 * **Right Column — Split Detail View (Full-Screen Slide-Over with `← Back` & `Commits | README` Toggle on Mobile):**
   * **Half 1 — Multi-Branch Commit Timeline:**
@@ -135,8 +138,10 @@ The four frontend assets live as real files under `static/` and are embedded wit
 
 * **Boot Recovery Sweep:** On process startup, `init_db` resets `UPDATE user_settings SET is_scanning = 0` and `UPDATE repos SET ai_status = 'none' WHERE ai_status = 'pending'`, preventing permanent deadlocks after a TrueNAS reboot or `SIGKILL`.
 * **API Error Contract:** Client errors return `{"error": "…"}` with meaningful status codes — `404` for missing records, `409` for unique-constraint conflicts (e.g. duplicate username), `401`/`403` for session/permission failures. SQLite internals are logged server-side, never returned to the browser.
-* **Per-User Deterministic Scheduler:** A 10-second Tokio ticker checks `WHERE is_active = 1 AND is_scanning = 0 AND next_scan_at <= NOW()`, backed by an in-memory `Mutex<HashSet<i64>>` scan guard.
-* **Transactional Cursor Advancement:** `search_queries.last_run_at` is updated **only** after a successful HTTP `200` response from GitHub. Multi-day internet or GitHub outages never skip missed repositories once connectivity returns.
+* **Per-User Deterministic Scheduler:** A 10-second Tokio ticker checks `WHERE is_active = 1 AND is_scanning = 0 AND next_scan_at <= NOW()`, backed by an in-memory scan guard. The guard is an RAII value: if a scan panics or is cancelled, `Drop` clears both the in-memory entry and `user_settings.is_scanning`, so a crashed scan can never wedge a user until restart.
+* **Transactional Cursor Advancement:** `search_queries.last_run_at` is updated **only** after a successful HTTP `200` response from GitHub, inside the same transaction that inserts the page's repositories. Multi-day internet or GitHub outages never skip missed repositories once connectivity returns.
+* **Batched Writes:** A search page is applied in one transaction (previously one connection per repository), commit sync uses one transaction per branch, and batch triage / reorder / import / delete+tombstone are each atomic. Webhook delivery happens after the commit, so a slow endpoint never holds the SQLite write lock.
+* **Visible Failures:** `user_settings.last_error` is surfaced in the UI (header banner + Configuration status line), and per-repository sync failures are logged and counted into that error instead of being swallowed.
 * **Decoupled Bounded AI Queue:** LLM requests run asynchronously behind a `Semaphore::new(1)` with a 10s connect / 90s read timeout so slow local GPUs never block GitHub scanning or thrash VRAM.
 * **Daily SQLite Maintenance:** Runs every 24 hours to prune expired `sessions`, prune `deleted_tombstones` older than 90 days, cap `commits` to the latest 100 per tracked repo, and execute `PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;`.
 * **Graceful Shutdown:** Intercepts `SIGTERM` / `SIGINT` from Docker/Dockge, clears scan flags, and checkpoints the SQLite WAL file before exit.
@@ -144,6 +149,9 @@ The four frontend assets live as real files under `static/` and are embedded wit
 ---
 
 ## 6. Database Schema (`SQLite`)
+
+**Migrations:** `PRAGMA user_version` tracks the schema. `init_db` creates the baseline tables, then applies numbered migration steps; a database created by a newer build only logs a warning. Adding a column means adding a step to `db::migrate` and bumping `SCHEMA_VERSION`.
+
 
 * `users (id, username, password_hash, is_admin, is_active, created_at)`
 * `sessions (token, user_id, expires_at)`

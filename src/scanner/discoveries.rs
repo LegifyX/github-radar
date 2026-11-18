@@ -115,83 +115,91 @@ pub async fn execute_user_scan(state: &AppState, user_id: i64) -> Result<(), Str
         };
 
         let scan_timestamp = Utc::now().to_rfc3339();
-        if let Some(items) = body["items"].as_array() {
-            for item in items {
-                let gh_id = item["id"].as_i64().unwrap_or(0);
-                if gh_id == 0 {
-                    continue;
-                }
-                let full_name = item["full_name"].as_str().unwrap_or("").to_string();
-                let html_url = item["html_url"].as_str().unwrap_or("").to_string();
-                let description = item["description"].as_str().unwrap_or("").to_string();
-                let language = item["language"].as_str().unwrap_or("").to_string();
-                let stars = item["stargazers_count"].as_i64().unwrap_or(0);
-                let pushed_at = item["pushed_at"]
-                    .as_str()
-                    .unwrap_or(&scan_timestamp)
-                    .to_string();
-                let default_branch = item["default_branch"]
-                    .as_str()
-                    .unwrap_or("main")
-                    .to_string();
-                let topics: Vec<String> = item["topics"]
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let topics_json = serde_json::to_string(&topics).unwrap_or_else(|_| "[]".into());
 
-                let inserted_id: Option<i64> = {
-                    let conn = state.db().map_err(|e| e.1)?;
+        // One connection and one transaction for the whole result page instead of
+        // a connection per repository. Webhook sends are collected and flushed
+        // after the commit so a slow endpoint never holds the write lock.
+        let mut pending_webhooks: Vec<String> = Vec::new();
+        {
+            let mut conn = state.db().map_err(|e| e.1)?;
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+            if let Some(items) = body["items"].as_array() {
+                for item in items {
+                    let gh_id = item["id"].as_i64().unwrap_or(0);
+                    if gh_id == 0 {
+                        continue;
+                    }
+                    let full_name = item["full_name"].as_str().unwrap_or("").to_string();
+                    let html_url = item["html_url"].as_str().unwrap_or("").to_string();
+                    let description = item["description"].as_str().unwrap_or("").to_string();
+                    let language = item["language"].as_str().unwrap_or("").to_string();
+                    let stars = item["stargazers_count"].as_i64().unwrap_or(0);
+                    let pushed_at = item["pushed_at"]
+                        .as_str()
+                        .unwrap_or(&scan_timestamp)
+                        .to_string();
+                    let default_branch = item["default_branch"]
+                        .as_str()
+                        .unwrap_or("main")
+                        .to_string();
+                    let topics: Vec<String> = item["topics"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let topics_json =
+                        serde_json::to_string(&topics).unwrap_or_else(|_| "[]".into());
 
                     // A hard-deleted repo only comes back if it was pushed after the
                     // deletion. Compare parsed instants: GitHub returns `...Z` while we
                     // store `...+00:00`, and those two forms do not sort together as
                     // plain strings.
-                    let tombstone_dt: Option<String> = conn
+                    let tombstone_dt: Option<String> = tx
                         .query_row(
                             "SELECT deleted_at FROM deleted_tombstones WHERE user_id = ?1 AND github_repo_id = ?2",
                             params![user_id, gh_id],
                             |r| r.get(0),
                         )
                         .optional()
-                        .unwrap_or(None);
+                        .map_err(|e| e.to_string())?;
 
                     if let Some(del_at) = tombstone_dt {
                         if !pushed_after(&pushed_at, &del_at) {
                             continue;
                         }
-                        let _ = conn.execute(
+                        tx.execute(
                             "DELETE FROM deleted_tombstones WHERE user_id = ?1 AND github_repo_id = ?2",
                             params![user_id, gh_id],
-                        );
+                        )
+                        .map_err(|e| e.to_string())?;
                     }
 
-                    let existing: Option<i64> = conn
+                    let existing: Option<i64> = tx
                         .query_row(
                             "SELECT id FROM repos WHERE user_id = ?1 AND github_repo_id = ?2",
                             params![user_id, gh_id],
                             |r| r.get(0),
                         )
                         .optional()
-                        .unwrap_or(None);
+                        .map_err(|e| e.to_string())?;
 
                     if let Some(ex_id) = existing {
-                        let _ = conn.execute(
+                        tx.execute(
                             "UPDATE repos SET stars = ?1, pushed_at = ?2, topics_json = ?3, description = ?4 WHERE id = ?5",
                             params![stars, pushed_at, topics_json, description, ex_id],
-                        );
-                        None
+                        )
+                        .map_err(|e| e.to_string())?;
                     } else {
                         let ai_initial = if settings.ai_enabled && settings.ai_summarize_readme {
                             "pending"
                         } else {
                             "none"
                         };
-                        conn.execute(
+                        tx.execute(
                             "INSERT INTO repos (
                                 user_id, github_repo_id, full_name, html_url, description, language, stars,
                                 topics_json, pushed_at, default_branch, status, ignore_type, matched_query,
@@ -213,61 +221,60 @@ pub async fn execute_user_scan(state: &AppState, user_id: i64) -> Result<(), Str
                                 ai_initial
                             ],
                         )
-                        .ok()
-                        .map(|_| conn.last_insert_rowid())
-                    }
-                };
+                        .map_err(|e| e.to_string())?;
 
-                if let Some(new_repo_id) = inserted_id {
-                    newly_discovered_repo_ids.push(new_repo_id);
+                        newly_discovered_repo_ids.push(tx.last_insert_rowid());
 
-                    // Fire Discovery Webhook if enabled on this query
-                    if query.notify_webhook && !settings.discovery_webhook_url.is_empty() {
-                        let msg = settings
-                            .discovery_webhook_template
-                            .replace("{{query}}", &query.query_text)
-                            .replace("{{repo}}", &full_name)
-                            .replace("{{url}}", &html_url)
-                            .replace("{{stars}}", &stars.to_string())
-                            .replace(
-                                "{{description}}",
-                                if description.is_empty() {
-                                    "No description provided."
-                                } else {
-                                    &description
-                                },
-                            );
-                        let _ = send_webhook_payload(
-                            &state.http_github,
-                            &settings.discovery_webhook_url,
-                            &msg,
-                        )
-                        .await;
-                        tokio::time::sleep(StdDuration::from_millis(500)).await;
+                        if query.notify_webhook && !settings.discovery_webhook_url.is_empty() {
+                            pending_webhooks.push(render_discovery_message(
+                                &settings.discovery_webhook_template,
+                                &query.query_text,
+                                &full_name,
+                                &html_url,
+                                stars,
+                                &description,
+                            ));
+                        }
                     }
                 }
             }
-        }
 
-        // Advance last_run_at cursor ONLY after successful HTTP 200 processing
-        if let Ok(conn) = state.db() {
-            let _ = conn.execute(
+            // Advance last_run_at cursor ONLY after successful HTTP 200 processing.
+            tx.execute(
                 "UPDATE search_queries SET last_run_at = ?1 WHERE id = ?2",
                 params![scan_timestamp, query.id],
-            );
+            )
+            .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+
+        for message in pending_webhooks {
+            let _ = send_webhook_payload(
+                &state.http_github,
+                &settings.discovery_webhook_url,
+                &message,
+            )
+            .await;
+            tokio::time::sleep(StdDuration::from_millis(500)).await;
         }
 
         tokio::time::sleep(StdDuration::from_millis(1200)).await;
     }
 
     // 2. Process Tracked Repositories (Multi-branch commits, Rename/404 detection, Webhooks)
+    let mut tracked_failures = Vec::new();
     for repo_id in tracked_ids {
-        let _ = sync_single_tracked_repo(state, user_id, repo_id, false).await;
+        if let Err(err) = sync_single_tracked_repo(state, user_id, repo_id, false).await {
+            warn!("Tracked sync failed for repo {}: {}", repo_id, err);
+            tracked_failures.push(err);
+        }
         tokio::time::sleep(StdDuration::from_millis(800)).await;
     }
 
-    // 3. Queue decoupled AI README summaries for new discoveries
-    if settings.ai_enabled && settings.ai_summarize_readme {
+    // 3. Queue decoupled AI README summaries for new discoveries. The worker
+    // itself resets `ai_status` to `none` when AI is disabled, so a repo can
+    // never stay stuck on `pending` after the setting is switched off.
+    if !newly_discovered_repo_ids.is_empty() {
         let ai_state = state.clone();
         tokio::spawn(async move {
             for rid in newly_discovered_repo_ids {
@@ -276,7 +283,38 @@ pub async fn execute_user_scan(state: &AppState, user_id: i64) -> Result<(), Str
         });
     }
 
+    if !tracked_failures.is_empty() {
+        return Err(format!(
+            "{} tracked repo(s) failed to sync (first error: {})",
+            tracked_failures.len(),
+            tracked_failures[0]
+        ));
+    }
+
     Ok(())
+}
+
+fn render_discovery_message(
+    template: &str,
+    query_text: &str,
+    full_name: &str,
+    html_url: &str,
+    stars: i64,
+    description: &str,
+) -> String {
+    template
+        .replace("{{query}}", query_text)
+        .replace("{{repo}}", full_name)
+        .replace("{{url}}", html_url)
+        .replace("{{stars}}", &stars.to_string())
+        .replace(
+            "{{description}}",
+            if description.is_empty() {
+                "No description provided."
+            } else {
+                description
+            },
+        )
 }
 
 /// True when `pushed_at` is strictly newer than `deleted_at`.

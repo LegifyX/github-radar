@@ -9,7 +9,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    api::auth::AuthCredentials, auth::AuthUser, db::ensure_user_settings, error::AppError,
+    api::auth::AuthCredentials,
+    auth::{hash_password, AuthUser},
+    db::ensure_user_settings,
+    error::AppError,
     state::AppState,
 };
 
@@ -82,7 +85,7 @@ pub async fn api_admin_create_user(
         ));
     }
 
-    let hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
+    let hash = hash_password(req.password.clone()).await?;
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO users (username, password_hash, is_admin, is_active, created_at)
@@ -113,7 +116,7 @@ pub async fn api_admin_update_user(
         if pw.len() < 6 {
             return Err(AppError::bad_request("Password must be >= 6 characters"));
         }
-        let hash = bcrypt::hash(&pw, bcrypt::DEFAULT_COST)?;
+        let hash = hash_password(pw).await?;
         let changed = conn.execute(
             "UPDATE users SET password_hash = ?1 WHERE id = ?2",
             params![hash, target_id],

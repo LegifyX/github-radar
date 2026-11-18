@@ -1,6 +1,8 @@
+use std::time::{Duration as StdDuration, Instant};
+
 use axum::{
     extract::State,
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     Json,
 };
 use chrono::{Duration, Utc};
@@ -9,7 +11,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{auth::AuthUser, db::ensure_user_settings, error::AppError, state::AppState};
+use crate::{
+    auth::{hash_password, verify_password, AuthUser},
+    db::ensure_user_settings,
+    error::AppError,
+    state::AppState,
+};
 
 pub async fn api_auth_status(
     State(state): State<AppState>,
@@ -69,6 +76,45 @@ pub struct AuthCredentials {
     pub password: String,
 }
 
+const LOGIN_MAX_FAILURES: u32 = 5;
+const LOGIN_WINDOW: StdDuration = StdDuration::from_secs(15 * 60);
+
+/// Case-insensitive key so `Admin` and `admin` share one failure budget.
+fn login_key(username: &str) -> String {
+    username.trim().to_lowercase()
+}
+
+fn login_blocked(state: &AppState, key: &str) -> bool {
+    let failures = state
+        .login_failures
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    failures
+        .get(key)
+        .is_some_and(|(count, last)| *count >= LOGIN_MAX_FAILURES && last.elapsed() < LOGIN_WINDOW)
+}
+
+fn record_login_failure(state: &AppState, key: &str) {
+    let mut failures = state
+        .login_failures
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    failures.retain(|_, (_, last)| last.elapsed() < LOGIN_WINDOW);
+    let entry = failures
+        .entry(key.to_owned())
+        .or_insert((0, Instant::now()));
+    entry.0 += 1;
+    entry.1 = Instant::now();
+}
+
+fn clear_login_failures(state: &AppState, key: &str) {
+    state
+        .login_failures
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(key);
+}
+
 /// `Secure` is only sent when the deployment is actually served over HTTPS
 /// (`COOKIE_SECURE=1`), so plain-HTTP LAN installs keep working.
 fn secure_flag(secure: bool) -> &'static str {
@@ -118,7 +164,7 @@ pub async fn api_auth_setup(
         return Err(AppError::forbidden("Initial admin setup already completed"));
     }
 
-    let hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
+    let hash = hash_password(req.password).await?;
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO users (username, password_hash, is_admin, is_active, created_at)
@@ -136,6 +182,14 @@ pub async fn api_auth_login(
     State(state): State<AppState>,
     Json(req): Json<AuthCredentials>,
 ) -> Result<(HeaderMap, Json<Value>), AppError> {
+    let key = login_key(&req.username);
+    if login_blocked(&state, &key) {
+        return Err(AppError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many failed sign-in attempts. Try again in 15 minutes.".into(),
+        ));
+    }
+
     let conn = state.db()?;
     let row: Option<(i64, String, i64)> = conn
         .query_row(
@@ -145,19 +199,24 @@ pub async fn api_auth_login(
         )
         .optional()?;
 
-    let (user_id, hash, is_active) =
-        row.ok_or_else(|| AppError::unauthorized("Invalid username or password"))?;
+    let Some((user_id, hash, is_active)) = row else {
+        record_login_failure(&state, &key);
+        return Err(AppError::unauthorized("Invalid username or password"));
+    };
 
     if is_active == 0 {
+        record_login_failure(&state, &key);
         return Err(AppError::forbidden(
             "Account has been disabled by an administrator",
         ));
     }
 
-    if !bcrypt::verify(&req.password, &hash).unwrap_or(false) {
+    if !verify_password(req.password, hash).await {
+        record_login_failure(&state, &key);
         return Err(AppError::unauthorized("Invalid username or password"));
     }
 
+    clear_login_failures(&state, &key);
     ensure_user_settings(&conn, user_id)?;
     let headers = create_session_cookie(&conn, user_id, state.cookie_secure)?;
     Ok((headers, Json(json!({ "ok": true }))))

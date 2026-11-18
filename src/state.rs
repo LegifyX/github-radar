@@ -1,7 +1,11 @@
-use std::{collections::HashSet, sync::Arc, time::Duration as StdDuration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex as StdMutex},
+    time::{Duration as StdDuration, Instant},
+};
 
 use rusqlite::Connection;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::error::AppError;
 
@@ -10,7 +14,11 @@ pub struct AppState {
     pub db_path: String,
     pub http_github: reqwest::Client,
     pub http_ai: reqwest::Client,
-    pub scanning_users: Arc<Mutex<HashSet<i64>>>,
+    /// Users with a scan in flight. A plain `std` mutex so the RAII scan guard
+    /// can clean up from `Drop` without needing an async context.
+    pub scanning_users: Arc<StdMutex<HashSet<i64>>>,
+    /// Failed login attempts per username: (count, first failure).
+    pub login_failures: Arc<StdMutex<HashMap<String, (u32, Instant)>>>,
     pub ai_semaphore: Arc<Semaphore>,
     /// Add `Secure` to session cookies (set when served over HTTPS).
     pub cookie_secure: bool,

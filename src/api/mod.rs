@@ -8,11 +8,39 @@ pub mod settings;
 pub mod state;
 
 use axum::{
+    extract::Request,
+    http::{header, HeaderValue},
+    middleware::Next,
+    response::Response,
     routing::{delete, get, post, put},
     Router,
 };
 
 use crate::state::AppState;
+
+/// Baseline browser hardening. The app is a single inline-script document, so
+/// `'unsafe-inline'` is required for script/style, but everything else (remote
+/// scripts, frames, plugin content) stays blocked.
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        ),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response
+}
 
 /// The whole HTTP surface of the app: static PWA assets, auth, the dashboard
 /// API, and the admin panel. Handlers live in the sibling modules.
@@ -72,5 +100,6 @@ pub fn router(state: AppState) -> Router {
             "/api/admin/users/:id",
             put(admin::api_admin_update_user).delete(admin::api_admin_delete_user),
         )
+        .layer(axum::middleware::from_fn(security_headers))
         .with_state(state)
 }

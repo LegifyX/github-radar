@@ -13,7 +13,7 @@ use std::{
 
 use chrono::Utc;
 use rusqlite::params;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::info;
 
 use crate::{
@@ -62,7 +62,8 @@ async fn main() {
         db_path: db_path.clone(),
         http_github,
         http_ai,
-        scanning_users: Arc::new(Mutex::new(HashSet::new())),
+        scanning_users: Arc::new(std::sync::Mutex::new(HashSet::new())),
+        login_failures: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         ai_semaphore: Arc::new(Semaphore::new(1)),
         cookie_secure,
     };

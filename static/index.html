@@ -601,6 +601,11 @@
       <span>Configure →</span>
     </div>
 
+    <div id="scan-error-banner" class="pat-banner" style="display:none; border-color: var(--accent-red);" onclick="switchTab('config')">
+      <span>⚠️ <strong>Last scan failed:</strong> <span id="scan-error-text"></span></span>
+      <span>Configure →</span>
+    </div>
+
     <main class="workspace">
       <!-- TAB 1: DISCOVERIES -->
       <section id="pane-discoveries" class="tab-pane active">
@@ -784,6 +789,7 @@
           <!-- Scanner & Retroactive Timer -->
           <div class="config-card">
             <h3>2. Scanner & Retroactive Auto-Ignore Window</h3>
+            <p id="cfg-scan-status" style="margin:0 0 10px; font-size:12.5px; color:var(--text-muted);">Last scan: never</p>
             <div class="form-grid">
               <div>
                 <label>Refresh Frequency (Minutes)</label>
@@ -954,6 +960,11 @@
       return d.innerHTML;
     }
 
+    // esc() handles text nodes; attribute values also need quotes escaped.
+    function escAttr(str) {
+      return esc(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function relTime(iso) {
       if (!iso) return 'never';
       const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -1059,6 +1070,14 @@
 
       document.getElementById('pat-warning-banner').style.display =
         APP.settings.github_pat_set ? 'none' : 'flex';
+
+      const scanError = document.getElementById('scan-error-banner');
+      if (APP.settings.last_error) {
+        document.getElementById('scan-error-text').textContent = APP.settings.last_error;
+        scanError.style.display = 'flex';
+      } else {
+        scanError.style.display = 'none';
+      }
     }
 
     // Live 1-second countdown ticker
@@ -1215,8 +1234,8 @@
       feed.innerHTML = filtered.map((r) => `
         <article class="repo-card" id="repo-card-${r.id}">
           <div class="repo-title-row">
-            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
-            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" title="Open on GitHub">↗ GitHub</a>
+            <a href="${escAttr(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
+            <a href="${escAttr(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" title="Open on GitHub">↗ GitHub</a>
           </div>
           <div class="repo-meta">
             <span>⭐ ${r.stars.toLocaleString()}</span>
@@ -1325,12 +1344,12 @@
             </strong>
             <div style="display:flex; gap:4px; align-items:center;" onclick="event.stopPropagation()">
               ${r.unread_count > 0 ? `<span class="badge badge-unread">${r.unread_count} new</span>` : ''}
-              <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" style="padding:2px 5px;" title="Open on GitHub">↗</a>
+              <a href="${escAttr(r.html_url)}" target="_blank" rel="noopener" class="btn-sm" style="padding:2px 5px;" title="Open on GitHub">↗</a>
             </div>
           </div>
 
           <div style="display:flex; flex-wrap:wrap; gap:5px;">
-            ${r.was_renamed ? `<span class="badge badge-warn" title="Previously ${esc(r.previous_name)}">Renamed from ${esc(r.previous_name)}</span>` : ''}
+            ${r.was_renamed ? `<span class="badge badge-warn" title="Previously ${escAttr(r.previous_name)}">Renamed from ${esc(r.previous_name)}</span>` : ''}
             ${r.is_missing ? `<span class="badge badge-danger">404 Unavailable</span>` : ''}
           </div>
 
@@ -1403,7 +1422,7 @@
             <div class="commit-row ${c.is_read ? '' : 'unread'}">
               <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:4px;">
                 ${c.branches.map((b) => `<span class="branch-pill">${esc(b)}</span>`).join('')}
-                <a href="${esc(c.html_url)}" target="_blank" rel="noopener" style="font-family:var(--font-mono); font-size:12px; color:var(--accent-blue);">${esc(c.sha.slice(0, 7))}</a>
+                <a href="${escAttr(c.html_url)}" target="_blank" rel="noopener" style="font-family:var(--font-mono); font-size:12px; color:var(--accent-blue);">${esc(c.sha.slice(0, 7))}</a>
                 <span style="font-size:12px; color:var(--text-muted);">• ${esc(c.author)} • ${relTime(c.committed_at)}</span>
               </div>
               <div style="font-size:13px;">${esc(c.message)}</div>
@@ -1479,7 +1498,7 @@
       feed.innerHTML = filtered.map((r) => `
         <article class="repo-card">
           <div class="repo-title-row">
-            <a href="${esc(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
+            <a href="${escAttr(r.html_url)}" target="_blank" rel="noopener" class="repo-name">${esc(r.full_name)}</a>
             <span class="badge ${r.ignore_type === 'manual' ? 'badge-danger' : 'badge-warn'}">
               ${r.ignore_type === 'manual' ? 'Manually Ignored' : 'Auto-Expired'}
             </span>
@@ -1539,6 +1558,14 @@
       APP.clearAiKey = false;
       document.getElementById('cfg-ai-readme').checked = APP.settings.ai_summarize_readme;
       document.getElementById('cfg-ai-commits').checked = APP.settings.ai_summarize_commits;
+
+      const lastScan = APP.settings.last_scan_at ? relTime(APP.settings.last_scan_at) : 'never';
+      document.getElementById('cfg-scan-status').textContent = APP.settings.last_error
+        ? `Last scan ${lastScan} — failed: ${APP.settings.last_error}`
+        : `Last scan: ${lastScan}`;
+      document.getElementById('cfg-scan-status').style.color = APP.settings.last_error
+        ? 'var(--accent-red)'
+        : 'var(--text-muted)';
 
       if (APP.settings.rate_limit_remaining != null) {
         document.getElementById('cfg-rate-badge').textContent =

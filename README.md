@@ -74,6 +74,8 @@ services:
 * **Tokens never reach the browser.** The GitHub PAT and the optional AI API key are stored in SQLite and are never serialized into API responses. `/api/state` only returns `github_pat_set` / `github_pat_hint` (e.g. `…a1b2`), and the Configuration form treats an empty field as "keep the stored value". Clearing requires the explicit **Clear** button.
 * **Sessions** are 30-day sliding, `HttpOnly; SameSite=Lax` cookies. Set `COOKIE_SECURE=1` once the app is behind HTTPS.
 * **Password resets revoke sessions.** Resetting a user's password (or disabling/deleting the account) deletes their session rows immediately.
+* **Sign-in throttling.** Five failed attempts for the same username in 15 minutes lock further attempts for that window (HTTP 429), so the bcrypt cost cannot be used as a free CPU burn.
+* **Browser hardening.** Responses carry a Content-Security-Policy (same-origin scripts, styles and XHR; remote images only), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 
 ---
 
@@ -99,7 +101,9 @@ cargo build --release
 
 ```text
 github-radar/
-├── .github/workflows/docker.yml  # Buildx CI/CD → ghcr.io
+├── .github/workflows/
+│   ├── ci.yml                    # fmt + clippy -D warnings + tests
+│   └── docker.yml                # Buildx CI/CD → ghcr.io
 ├── src/
 │   ├── main.rs                   # Env config, AppState wiring, scheduler spawn, serve, shutdown
 │   ├── state.rs                  # AppState (DB handle, HTTP clients, scan guard, cookie policy)
@@ -130,7 +134,9 @@ github-radar/
 │   ├── manifest.json             # PWA manifest (embedded at compile time)
 │   ├── sw.js                     # Service worker (embedded at compile time)
 │   └── icon.svg                  # App icon (embedded at compile time)
-├── Cargo.toml / Cargo.lock       # Pinned dependencies and release LTO profile
+├── Cargo.toml / Cargo.lock       # Pinned dependencies, MSRV and release LTO profile
+├── rust-toolchain.toml           # stable + rustfmt/clippy for contributors
+├── .dockerignore                 # Keeps target/, data/ and .git out of the build context
 ├── Dockerfile                    # Multi-stage build (rust:1-bookworm → debian:bookworm-slim)
 ├── compose.yaml                  # Docker Compose / Dockge stack definition
 ├── SPEC.md                       # Full architectural and product specification
