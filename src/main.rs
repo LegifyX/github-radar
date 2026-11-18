@@ -10,14 +10,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     env, fs,
     path::Path as FsPath,
     sync::Arc,
     time::Duration as StdDuration,
 };
 use tokio::sync::{Mutex, Semaphore};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 static INDEX_HTML: &str = include_str!("../static/index.html");
@@ -106,6 +106,7 @@ impl AppState {
     }
 }
 
+#[derive(Debug)]
 struct AppError(StatusCode, String);
 
 impl IntoResponse for AppError {
@@ -115,8 +116,20 @@ impl IntoResponse for AppError {
     }
 }
 
-impl<E: std::error::Error> From<E> for AppError {
-    fn from(err: E) -> Self {
+impl From<rusqlite::Error> for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        AppError(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for AppError {
+    fn from(err: reqwest::Error) -> Self {
+        AppError(StatusCode::BAD_GATEWAY, err.to_string())
+    }
+}
+
+impl From<bcrypt::BcryptError> for AppError {
+    fn from(err: bcrypt::BcryptError) -> Self {
         AppError(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
     }
 }
@@ -1111,8 +1124,8 @@ async fn api_quick_track(
     let full_name = gh_repo["full_name"].as_str().unwrap_or(&slug).to_string();
     let html_url = gh_repo["html_url"]
         .as_str()
-        .unwrap_or(&format!("https://github.com/{}", full_name))
-        .to_string();
+        .map(String::from)
+        .unwrap_or_else(|| format!("https://github.com/{}", full_name));
     let description = gh_repo["description"].as_str().unwrap_or("").to_string();
     let language = gh_repo["language"].as_str().unwrap_or("").to_string();
     let stars = gh_repo["stargazers_count"].as_i64().unwrap_or(0);
@@ -2351,8 +2364,8 @@ async fn sync_single_tracked_repo(
         .to_string();
     let html_url = gh_repo["html_url"]
         .as_str()
-        .unwrap_or(&format!("https://github.com/{}", current_full_name))
-        .to_string();
+        .map(String::from)
+        .unwrap_or_else(|| format!("https://github.com/{}", current_full_name));
     let stars = gh_repo["stargazers_count"].as_i64().unwrap_or(0);
     let pushed_at = gh_repo["pushed_at"].as_str().unwrap_or("").to_string();
     let default_branch = gh_repo["default_branch"].as_str().unwrap_or("main").to_string();
