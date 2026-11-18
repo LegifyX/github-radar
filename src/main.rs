@@ -22,6 +22,21 @@ use crate::{
     state::AppState,
 };
 
+/// Most first-run failures on a NAS are "the data directory isn't writable by
+/// the container user", so say that instead of a bare OS error.
+fn fail_data_dir(path: &FsPath, err: impl std::fmt::Display) -> ! {
+    panic!(
+        concat!(
+            "Cannot use {}: {}.
+",
+            "In Docker the process runs as UID 10001, so the data directory must be writable ",
+            "by that UID (chown -R 10001:10001 <dir>, or chmod 777 <dir>)."
+        ),
+        path.display(),
+        err
+    )
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -34,7 +49,9 @@ async fn main() {
     let db_path = env::var("DATABASE_PATH").unwrap_or_else(|_| "/data/radar.db".to_string());
     if let Some(parent) = FsPath::new(&db_path).parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).expect("Failed to create database directory");
+            if let Err(err) = fs::create_dir_all(parent) {
+                fail_data_dir(parent, err);
+            }
         }
     }
 
@@ -69,7 +86,10 @@ async fn main() {
     };
 
     {
-        let conn = state.db().expect("Failed to open SQLite database");
+        let conn = match state.db() {
+            Ok(conn) => conn,
+            Err(err) => fail_data_dir(FsPath::new(&db_path), err.1),
+        };
         init_db(&conn).expect("Failed to initialize database schema");
     }
 

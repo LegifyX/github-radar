@@ -28,13 +28,18 @@ RUN cargo build --release --locked
 # Stage 2: minimal production runtime image
 FROM debian:bookworm-slim
 
+# The app runs as an unprivileged numeric user. A passwd entry is not required
+# for a single static binary; the UID only matters for /data ownership.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /data
+    mkdir -p /data && \
+    chown -R 10001:10001 /data
 
 WORKDIR /app
 COPY --from=builder /app/target/release/github-radar /usr/local/bin/github-radar
+
+USER 10001:10001
 
 ENV DATABASE_PATH=/data/radar.db
 ENV BIND_ADDR=0.0.0.0:8080

@@ -23,6 +23,18 @@ Designed specifically to deploy cleanly via **Docker / Dockge on TrueNAS** with 
 ### 1. Create a Persistent Dataset
 Create a dataset or directory on your host for the SQLite database (e.g., `/mnt/tank/docker/github-radar`).
 
+The container runs as **UID/GID `10001`** (non-root), so that directory has to be writable by it. On TrueNAS:
+
+```bash
+# tidy: give the data folder to the container user
+sudo chown -R 10001:10001 /mnt/tank/docker/github-radar
+
+# or, if you'd rather not track a numeric UID on the share:
+sudo chmod -R 777 /mnt/tank/docker/github-radar
+```
+
+A Docker **named volume** (`github-radar_data:/data`) inherits the right ownership from the image and needs no action. If the folder stays owned by someone else, the container will fail to create `/data/radar.db` and exit; alternatively pin a different UID in the compose file (`user: "1000:1000"`) to match the host owner.
+
 ### 2. Deploy via `compose.yaml`
 Create a stack in **Dockge** (or run `docker compose up -d`) using:
 
@@ -38,6 +50,8 @@ services:
       - DATABASE_PATH=/data/radar.db
       - BIND_ADDR=0.0.0.0:8080
       - RUST_LOG=github_radar=info
+    # Container runs as UID/GID 10001; see the permissions note above.
+    # user: "1000:1000"   # optional: run as your own NAS user instead
     volumes:
       - /mnt/tank/docker/github-radar:/data
     healthcheck:
@@ -140,5 +154,12 @@ github-radar/
 ├── Dockerfile                    # Multi-stage build (rust:1-bookworm → debian:bookworm-slim)
 ├── compose.yaml                  # Docker Compose / Dockge stack definition
 ├── SPEC.md                       # Full architectural and product specification
+├── LICENSE                       # MIT
 └── README.md                     # Project documentation
 ```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

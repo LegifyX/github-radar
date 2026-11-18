@@ -14,7 +14,7 @@
 * **Backend:** Rust (`axum 0.7`, `tokio 1.40`, `reqwest 0.12` with `rustls-tls`, `serde`, `serde_json`, `chrono`, `bcrypt`, `uuid`).
 * **Database:** SQLite via `rusqlite 0.32` (`bundled` amalgamation) running in **WAL (`Write-Ahead Logging`)** mode with `busy_timeout = 5000ms` and `synchronous = NORMAL`. Stored at `/data/radar.db` (configurable via `DATABASE_PATH`).
 * **Frontend:** Vanilla HTML5/CSS3/ES6 JavaScript embedded inside `static/index.html` with zero external CDN dependencies, zero runtime build tools, and full PWA support (`/manifest.json`, `/sw.js`, `/icon.svg`).
-* **Containerization & CI/CD:** Multi-stage `Dockerfile` (`rust:1-bookworm` builder → `debian:bookworm-slim` runtime with `ca-certificates` and `curl`), `compose.yaml` for Dockge, and `.github/workflows/docker.yml` publishing `linux/amd64` images to `ghcr.io`. The build copies `Cargo.lock` and compiles with `--locked`, so the image contains exactly the dependency set that was tested.
+* **Containerization & CI/CD:** Multi-stage `Dockerfile` (`rust:1-bookworm` builder → `debian:bookworm-slim` runtime with `ca-certificates` and `curl`), `compose.yaml` for Dockge, and `.github/workflows/docker.yml` publishing `linux/amd64` images to `ghcr.io`. The build copies `Cargo.lock` and compiles with `--locked`, so the image contains exactly the dependency set that was tested. The runtime image runs as unprivileged **UID/GID `10001`** and owns `/data`, so a bind-mounted database directory must be writable by that UID (or overridden with `user:` in compose).
 
 ---
 

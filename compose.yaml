@@ -13,6 +13,9 @@ services:
       - RUST_LOG=github_radar=info
       # Set to 1 when this container sits behind an HTTPS reverse proxy
       - COOKIE_SECURE=0
+    # Runs as UID/GID 10001 (non-root): ./data must be writable by that UID.
+    #   sudo chown -R 10001:10001 ./data    (or: sudo chmod -R 777 ./data)
+    # To keep the host owner instead, override it here, e.g. user: "1000:1000".
     volumes:
       - ./data:/data
     healthcheck:

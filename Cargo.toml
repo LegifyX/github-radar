@@ -3,6 +3,7 @@ name = "github-radar"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.87"
+license = "MIT"
 repository = "https://github.com/LegifyX/github-radar"
 description = "Self-hosted GitHub repository discovery & multi-branch tracking PWA"
 
