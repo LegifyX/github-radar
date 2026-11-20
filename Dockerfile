@@ -23,7 +23,12 @@ RUN mkdir -p src static && \
 
 COPY src ./src
 COPY static ./static
-RUN cargo build --release --locked
+# The stub build left a fingerprint newer than these copied sources, so cargo
+# would treat the crate as fresh and keep the stub binary (which exits 0).
+# Touch the entry point to force a real rebuild, and fail the build rather than
+# ship a stub-sized binary.
+RUN touch src/main.rs && cargo build --release --locked && \
+    test "$(stat -c %s target/release/github-radar)" -gt 1000000
 
 # Stage 2: minimal production runtime image
 FROM debian:bookworm-slim
